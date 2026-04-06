@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+# FastAPI API only — no Screaming Frog CLI or JVM (workers use the Packer-built GCE image).
+
+FROM python:3.13-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY api/requirements.txt /build/requirements.txt
+# API tier does not bundle the crawl engine; exclude screamingfrog to avoid pulling Java/SF deps.
+RUN grep -vE '^\s*screamingfrog' /build/requirements.txt > /build/requirements-api.txt \
+    && pip install --user -r /build/requirements-api.txt
+
+FROM python:3.13-slim AS runtime
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/home/app/.local/bin:${PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /usr/sbin/nologin --uid 10001 app
+
+COPY --from=builder /root/.local /home/app/.local
+
+WORKDIR /app
+COPY api/ /app/
+
+RUN chown -R app:app /app /home/app/.local
+
+USER app
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -sf http://127.0.0.1:8000/health >/dev/null || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

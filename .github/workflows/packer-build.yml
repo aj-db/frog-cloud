@@ -1,0 +1,88 @@
+name: Build worker image (Packer)
+
+on:
+  workflow_dispatch:
+    inputs:
+      screaming_frog_deb_gs_uri:
+        description: "gs:// URI of the Screaming Frog CLI .deb (must be readable by the Packer builder SA)."
+        required: true
+        type: string
+      zone:
+        description: "GCE zone for the temporary build VM."
+        required: false
+        default: "us-central1-a"
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - "infra/packer/**"
+      - "api/requirements.txt"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: packer-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packer:
+    name: Packer build
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'workflow_dispatch' && 'production') || 'staging' }}
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      DEFAULT_DEB_URI: ${{ vars.SCREAMING_FROG_DEB_GS_URI }}
+      INPUT_DEB_URI: ${{ github.event.inputs.screaming_frog_deb_gs_uri }}
+      INPUT_ZONE: ${{ github.event.inputs.zone }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_PACKER_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Packer
+        uses: hashicorp/setup-packer@v3
+        with:
+          version: "1.11.2"
+
+      - name: Initialize Packer plugins
+        working-directory: infra/packer
+        run: packer init worker.pkr.hcl
+
+      - name: Validate template
+        working-directory: infra/packer
+        run: packer validate worker.pkr.hcl
+
+      - name: Build image
+        working-directory: infra/packer
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            DEB_URI="${INPUT_DEB_URI}"
+          else
+            DEB_URI="${DEFAULT_DEB_URI}"
+          fi
+          if [ -z "${DEB_URI}" ]; then
+            echo "Missing deb URI: set SCREAMING_FROG_DEB_GS_URI (path triggers) or pass workflow input."
+            exit 1
+          fi
+          ZONE="${INPUT_ZONE:-us-central1-a}"
+          packer build \
+            -var=project_id="${GCP_PROJECT_ID}" \
+            -var=zone="${ZONE}" \
+            -var=image_version="${GITHUB_SHA}" \
+            -var=screaming_frog_deb_gs_uri="${DEB_URI}" \
+            worker.pkr.hcl
+
+      - name: Image summary
+        run: |
+          echo "Built image family frog-worker with name suffix ${GITHUB_SHA}."
+          echo "Point Terraform worker_source_image at the new image (gcloud compute images list --filter=name~frog-worker)."

@@ -1,0 +1,190 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "GitHub Environment to deploy (must exist with OIDC + GCP secrets)."
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: deploy-api-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PYTHON_VERSION: "3.13"
+  NODE_VERSION: "20"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Ruff
+        run: pip install "ruff>=0.8.0"
+
+      - name: Ruff (api)
+        working-directory: api
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Next.js lint
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install API deps (no crawl engine for CI)
+        working-directory: api
+        run: |
+          grep -vE '^\s*screamingfrog' requirements.txt > requirements-ci.txt
+          pip install -r requirements-ci.txt
+
+      - name: Pytest
+        working-directory: api
+        run: |
+          pytest -q || {
+            code=$?
+            if [ "$code" -eq 5 ]; then
+              echo "No tests collected; treating as success for bootstrap repos."
+              exit 0
+            fi
+            exit "$code"
+          }
+
+  deploy-staging:
+    name: Deploy (staging)
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: staging
+    env:
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      CLOUD_RUN_SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE_NAME }}
+      DB_SECRET: ${{ secrets.GCP_DATABASE_URL_SECRET_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        run: |
+          IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/frog-api/frog-api:${GITHUB_SHA}"
+          docker build -f docker/Dockerfile.api -t "${IMAGE}" .
+          docker push "${IMAGE}"
+          echo "IMAGE_URI=${IMAGE}" >> "${GITHUB_ENV}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Alembic migrate (staging)
+        run: |
+          pip install "alembic>=1.14" "sqlalchemy>=2" "psycopg2-binary>=2.9"
+          export DATABASE_URL="$(gcloud secrets versions access latest --secret="${DB_SECRET}" --project="${GCP_PROJECT_ID}")"
+          cd api && alembic upgrade head
+
+      - name: Deploy to Cloud Run (staging)
+        run: |
+          gcloud run deploy "${CLOUD_RUN_SERVICE_NAME}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_URI}" \
+            --platform=managed \
+            --quiet
+
+  deploy-production:
+    name: Deploy (production)
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production'
+    environment: production
+    env:
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      CLOUD_RUN_SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE_NAME }}
+      DB_SECRET: ${{ secrets.GCP_DATABASE_URL_SECRET_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        run: |
+          IMAGE="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/frog-api/frog-api:${GITHUB_SHA}"
+          docker build -f docker/Dockerfile.api -t "${IMAGE}" .
+          docker push "${IMAGE}"
+          echo "IMAGE_URI=${IMAGE}" >> "${GITHUB_ENV}"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Alembic migrate (production)
+        run: |
+          pip install "alembic>=1.14" "sqlalchemy>=2" "psycopg2-binary>=2.9"
+          export DATABASE_URL="$(gcloud secrets versions access latest --secret="${DB_SECRET}" --project="${GCP_PROJECT_ID}")"
+          cd api && alembic upgrade head
+
+      - name: Deploy to Cloud Run (production)
+        run: |
+          gcloud run deploy "${CLOUD_RUN_SERVICE_NAME}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_URI}" \
+            --platform=managed \
+            --quiet
