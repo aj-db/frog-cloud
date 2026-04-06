@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
@@ -36,7 +37,7 @@ class PaginatedResponse[T](BaseModel):
 class TenantResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: UUID
     clerk_org_id: str
     name: str
     plan: str
@@ -66,8 +67,8 @@ class CrawlProfileUpdate(BaseModel):
 class CrawlProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    tenant_id: str
+    id: UUID
+    tenant_id: UUID
     name: str
     description: str | None
     config_path: str
@@ -89,9 +90,9 @@ class CrawlJobCreate(BaseModel):
 class CrawlJobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    tenant_id: str
-    profile_id: str
+    id: UUID
+    tenant_id: UUID
+    profile_id: UUID
     target_url: str
     status: JobStatusLiteral
     progress_pct: float | None
@@ -113,9 +114,9 @@ class CrawlJobResponse(BaseModel):
 class CrawlJobListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    tenant_id: str
-    profile_id: str
+    id: UUID
+    tenant_id: UUID
+    profile_id: UUID
     target_url: str
     status: JobStatusLiteral
     progress_pct: float | None
@@ -148,8 +149,8 @@ class CrawlJobListEnvelope(BaseModel):
 class CrawlPageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    job_id: str
+    id: UUID
+    job_id: UUID
     address: str
     status_code: int | None
     title: str | None
@@ -188,9 +189,9 @@ class CrawlPageResponse(BaseModel):
 class CrawlIssueResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    job_id: str
-    page_id: str | None
+    id: UUID
+    job_id: UUID
+    page_id: UUID | None
     issue_type: str
     severity: IssueSeverityLiteral
     details: str | None
@@ -205,8 +206,8 @@ class CrawlIssueResponse(BaseModel):
 class CrawlLinkResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    job_id: str
+    id: UUID
+    job_id: UUID
     source_url: str
     target_url: str
     link_type: str | None
@@ -241,9 +242,9 @@ class ScheduledCrawlUpdate(BaseModel):
 class ScheduledCrawlResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    tenant_id: str
-    profile_id: str
+    id: UUID
+    tenant_id: UUID
+    profile_id: UUID
     target_url: str
     cron_expression: str
     timezone: str

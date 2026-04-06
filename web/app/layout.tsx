@@ -4,9 +4,9 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Frog in the Cloud",
+  title: "Vulpes",
   description:
-    "Multi-tenant SEO crawl platform — run and review Screaming Frog crawls in the browser.",
+    "Multi-tenant SEO crawl platform powered by Screaming Frog.",
 };
 
 export default function RootLayout({

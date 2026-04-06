@@ -22,19 +22,12 @@ def _repo_root() -> Path:
 
 
 def _default_profiles() -> list[tuple[str, str, str]]:
-    """Name, description, relative path under repo configs/."""
+    """Auto-discover .seospiderconfig files under repo configs/."""
     cfg = _repo_root() / "configs"
-    patterns = [
-        ("Standard audit", "Balanced technical SEO audit", "standard-audit.seospiderconfig"),
-        ("Full JS rendering", "Render JavaScript-heavy sites", "full-js-rendering.seospiderconfig"),
-        ("Content focus", "Content-oriented crawl", "content-focus.seospiderconfig"),
-        ("Links only", "Fast link discovery", "links-only.seospiderconfig"),
-    ]
     out: list[tuple[str, str, str]] = []
-    for name, desc, fname in patterns:
-        path = cfg / fname
-        if path.exists():
-            out.append((name, desc, str(path.resolve())))
+    for path in sorted(cfg.glob("*.seospiderconfig")):
+        name = path.stem.replace("-", " ").replace("_", " ")
+        out.append((name, f"Crawl profile: {name}", str(path.resolve())))
     return out
 
 

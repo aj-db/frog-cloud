@@ -13,7 +13,7 @@ ExecutorBackend = Literal["local", "none", "gce"]
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=("../.env", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -53,10 +53,8 @@ def get_settings() -> Settings:
 
 
 def cors_origin_list() -> list[str]:
-    """Parse CORS_ORIGINS without requiring full Settings (so `app` can import without DATABASE_URL)."""
-    import os
-
-    raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000").strip()
+    """Parse CORS_ORIGINS from settings (reads .env via pydantic-settings)."""
+    raw = get_settings().cors_origins.strip()
     if not raw:
         return ["http://localhost:3000"]
     parts = [o.strip() for o in raw.split(",") if o.strip()]

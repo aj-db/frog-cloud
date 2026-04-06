@@ -32,7 +32,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               href="/crawls"
               className="font-soehne text-[13px] font-semibold tracking-tight text-[var(--charcoal)]"
             >
-              SERQL
+              🦊 Vulpes
             </Link>
             <nav className="flex items-center gap-1">
               {nav.map((item) => {
