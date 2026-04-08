@@ -6,23 +6,33 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { Button } from "@/components/button";
 import { CrawlStatusBadge } from "@/components/crawl-status-badge";
 import type { CrawlJob } from "@/lib/api-types";
 import { formatDuration } from "@/lib/duration";
+import { jobIsActive } from "@/lib/job-status";
 import { useCrawlApi } from "@/lib/use-crawl-api";
 
 const columnHelper = createColumnHelper<CrawlJob>();
 
 export default function CrawlsPage() {
   const api = useCrawlApi();
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["crawls"],
     queryFn: () => api.getCrawls(),
+  });
+  const [deleteTarget, setDeleteTarget] = useState<CrawlJob | null>(null);
+  const deleteMutation = useMutation({
+    mutationFn: (jobId: string) => api.deleteCrawl(jobId),
+    onSuccess: () => {
+      setDeleteTarget(null);
+      void queryClient.invalidateQueries({ queryKey: ["crawls"] });
+    },
   });
 
   const columns = useMemo(
@@ -77,6 +87,26 @@ export default function CrawlsPage() {
             )}
           </span>
         ),
+      }),
+      columnHelper.display({
+        id: "actions",
+        header: "",
+        cell: (info) => {
+          const job = info.row.original;
+          if (jobIsActive(job.status)) return null;
+          return (
+            <button
+              type="button"
+              className="text-[12px] font-medium text-[var(--muted)] hover:text-[var(--red)] transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteTarget(job);
+              }}
+            >
+              Delete
+            </button>
+          );
+        },
       }),
     ],
     [],
@@ -161,6 +191,50 @@ export default function CrawlsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      ) : null}
+
+      {deleteTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm delete"
+        >
+          <div
+            className="w-full max-w-sm space-y-4 border bg-[var(--card)] p-6 shadow-lg"
+            style={{ borderColor: "var(--border)", borderRadius: "var(--radius)" }}
+          >
+            <p className="font-soehne text-[14px] font-semibold text-[var(--charcoal)]">
+              Delete this crawl?
+            </p>
+            <p className="text-[13px] text-[var(--muted)]">
+              This will permanently remove the crawl and all its pages, issues, and links.
+              This action cannot be undone.
+            </p>
+            <p className="break-all font-mono text-[12px] text-[var(--charcoal)]">
+              {deleteTarget.target_url}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={deleteMutation.isPending}
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                loading={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate(deleteTarget.id)}
+                className="!bg-[var(--red)] !text-white"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

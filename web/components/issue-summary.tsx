@@ -47,7 +47,7 @@ export function IssueSummary({ issues, activeFilter, onSelect }: IssueSummaryPro
   return (
     <div className="space-y-2">
       <p className="ds-section-label">Issues by type</p>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2">
         {groups.map(([type, counts]) => {
           const selected = activeFilter?.issue_type === type;
           return (

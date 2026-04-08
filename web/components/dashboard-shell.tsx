@@ -26,7 +26,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           background: "var(--bg)",
         }}
       >
-        <div className="mx-auto flex max-w-[740px] flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex flex-wrap items-center gap-6">
             <Link
               href="/crawls"
@@ -68,7 +68,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-[740px] px-4 py-8">{children}</main>
+      <main className="mx-auto w-full max-w-[1600px] px-4 py-8">{children}</main>
     </div>
   );
 }

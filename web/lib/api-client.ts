@@ -1,5 +1,6 @@
 import createClient from "openapi-fetch";
 import type {
+  CrawlComparisonSummary,
   CrawlIssueRow,
   CrawlJobAccepted,
   CrawlJob,
@@ -175,6 +176,8 @@ function buildPagesQuery(params: PagesQueryParams): Record<string, string | numb
   if (params.dir) q.dir = params.dir;
   if (params.status_code) q.status_code = params.status_code;
   if (params.indexability) q.indexability = params.indexability;
+  if (params.content_type) q.content_type = params.content_type;
+  if (params.in_sitemap != null) q.in_sitemap = params.in_sitemap;
   if (params.search) q.search = params.search;
   if (params.has_issues != null) q.has_issues = params.has_issues;
   if (params.issue_type) q.issue_type = params.issue_type;
@@ -201,8 +204,13 @@ export function createCrawlApi(getToken: GetToken) {
   }
 
   return {
-    getCrawls: async (): Promise<CrawlJob[]> => {
+    getCrawls: async (query?: { target_url?: string; status?: string }): Promise<CrawlJob[]> => {
+      const q: Record<string, string> = {};
+      if (query?.target_url) q.target_url = query.target_url;
+      if (query?.status) q.status = query.status;
+
       const { data, error, response } = await client.GET("/api/crawls", {
+        params: { query: q },
         headers: await headers(),
       });
       if (error || !response.ok) {
@@ -289,6 +297,20 @@ export function createCrawlApi(getToken: GetToken) {
         next_cursor: d.next_cursor ?? null,
         total_count: d.total_count ?? d.items?.length ?? 0,
       };
+    },
+
+    getCrawlSummary: async (jobId: string, previousJobId?: string): Promise<CrawlComparisonSummary> => {
+      const token = await getToken();
+      const query = previousJobId ? `?previous_job_id=${encodeURIComponent(previousJobId)}` : "";
+      const res = await fetch(
+        `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}/summary${query}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+      );
+      if (!res.ok) {
+        const body = await parseError(res);
+        throw new ApiRequestError("Failed to load summary", res.status, body);
+      }
+      return (await res.json()) as CrawlComparisonSummary;
     },
 
     getCrawlProfiles: async (): Promise<CrawlProfile[]> => {
@@ -427,6 +449,21 @@ export function createCrawlApi(getToken: GetToken) {
         throw new ApiRequestError("Retry failed", res.status, body);
       }
       return (await res.json()) as CrawlJobAccepted;
+    },
+
+    deleteCrawl: async (jobId: string): Promise<void> => {
+      const token = await getToken();
+      const res = await fetch(
+        `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}`,
+        {
+          method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
+      if (!res.ok) {
+        const body = await parseError(res);
+        throw new ApiRequestError("Delete failed", res.status, body);
+      }
     },
 
     duplicateCrawl: async (jobId: string): Promise<CrawlJobAccepted> => {

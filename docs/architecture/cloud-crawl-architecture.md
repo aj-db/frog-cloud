@@ -254,6 +254,69 @@ This debug cycle established the following concrete outcomes:
 - The backend API path used for live verification was the staging Cloud Run service.
 - Repository-wide frontend lint output is currently noisy because generated Next.js output is being scanned, but the crawl-flow edits themselves type-check and the verified runtime behavior is correct.
 
+## Cross-Crawl Comparison Summaries
+
+The system now supports crawl-to-crawl comparison for completed jobs.
+
+### How the baseline is selected
+
+For any completed crawl, the API finds the immediately previous crawl in the same logical series:
+
+- same `tenant_id`
+- same `profile_id`
+- same `target_url`
+- status `complete`
+- `created_at` strictly before the current job
+
+The most recent matching job is used as the baseline. If no previous crawl exists, the summary is returned without comparison data.
+
+### What the summary includes
+
+The `GET /api/crawls/{job_id}/summary` endpoint returns:
+
+- **Current and previous aggregates**: URLs crawled, average response time, total issue count
+- **Status-code distribution**: counts for 2xx, 3xx, 4xx, 5xx buckets in both crawls
+- **Indexability distribution**: indexable vs non-indexable page counts
+- **Issue-type deltas**: newly introduced issue types, resolved issue types, and per-type count changes
+
+### What the summary does not include (v1)
+
+- Arbitrary user-selected baselines
+- Multi-crawl trend lines or dashboards
+- Per-page field diffs across crawls
+- URL canonicalization beyond raw stored `address` matching
+
+### Frontend rendering
+
+The comparison summary appears on the crawl detail page between the stat cards and the issue/pages/links tabs. It renders:
+
+- a link to the previous crawl for context
+- delta stat cards for key metrics
+- a status-code distribution delta grid
+- badge groups for new/resolved issue types
+- a row-by-row issue-type count change table
+
+The summary loads independently via `useQuery` and degrades silently if unavailable.
+
+### Key files
+
+- Backend service: `api/app/services/crawl_summary.py`
+- Response schemas: `api/app/schemas.py` (`CrawlComparisonSummary`, `CrawlSnapshotAggregates`, etc.)
+- API endpoint: `api/app/routers/results.py` (`GET /{job_id}/summary`)
+- Frontend component: `web/components/crawl-change-summary.tsx`
+- Frontend types: `web/lib/api-types.ts` (`CrawlComparisonSummary` and related interfaces)
+
+### Expanded page detail drawer
+
+The page detail drawer now shows all stored SEO fields, organized into four groups:
+
+- **Crawl metrics**: status code, depth, word count, response time, size, link score
+- **SEO on-page**: title, meta description, H1, indexability, canonical, canonical link element
+- **Technical**: content type, HTTP version, redirect URL, meta robots, X-Robots-Tag, pagination status
+- **Link graph**: inlinks, outlinks
+
+The pages table also supports filtering by content type in addition to the existing status code and indexability filters.
+
 ## Recommended Next Documentation
 
 This document explains the current verified architecture and data flow.

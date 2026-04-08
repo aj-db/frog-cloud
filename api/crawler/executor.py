@@ -77,7 +77,12 @@ def _run_local_job_impl(job_id: UUID) -> None:
             from screamingfrog.cli.exports import start_crawl
 
             config_path = profile.config_path if Path(profile.config_path).exists() else None
-            logger.info("Job %s: config_path=%r", job_id, config_path)
+            logger.info("Job %s: config_path=%r, max_urls=%s", job_id, config_path, job.max_urls)
+
+            extra: list[str] = []
+            if job.max_urls:
+                extra += ["--crawl-limit", str(job.max_urls)]
+
             start_crawl(
                 job.target_url,
                 output_dir,
@@ -87,6 +92,7 @@ def _run_local_job_impl(job_id: UUID) -> None:
                 overwrite=True,
                 save_crawl=True,
                 export_format="csv",
+                extra_args=extra or None,
             )
         except RuntimeError as e:
             # start_crawl uses run_cli(check=True): non-zero exit raises RuntimeError

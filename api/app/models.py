@@ -149,7 +149,9 @@ class CrawlJob(Base):
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    max_urls: Mapped[int | None] = mapped_column(Integer, nullable=True)
     urls_crawled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status_message: Mapped[str | None] = mapped_column(String(512), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     artifact_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -205,6 +207,7 @@ class CrawlPage(Base):
     http_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     x_robots_tag: Mapped[str | None] = mapped_column(Text, nullable=True)
     link_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    in_sitemap: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     extra_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from crawler.progress import set_job_error, transition_job_status, update_heartb
 logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 400
+EXTRACTION_HEARTBEAT_INTERVAL_SECONDS = 15.0
 
 
 def _load_crawl_artifact(artifact_path: Path, cli_path: str | None):
@@ -80,6 +82,8 @@ _SKIP_METADATA_KEYS = frozenset(
             "x-robots-tag",
             "link_score",
             "link score",
+            "in_sitemap",
+            "in sitemap",
         )
     }
 )
@@ -112,6 +116,27 @@ def _to_float(v: Any) -> float | None:
         return None
 
 
+_DEPTH_SENTINEL = 2_147_483_647
+
+
+def _to_crawl_depth(v: Any) -> int | None:
+    n = _to_int(v)
+    if n is not None and n >= _DEPTH_SENTINEL:
+        return None
+    return n
+
+
+def _to_bool(v: Any) -> bool | None:
+    if v is None or v == "":
+        return None
+    s = str(v).strip().lower()
+    if s in ("true", "1", "yes"):
+        return True
+    if s in ("false", "0", "no"):
+        return False
+    return None
+
+
 def _row_to_page_dict(job_id: UUID, row: dict[str, Any]) -> dict[str, Any]:
     address = _cell(row, "address", "url", "Address") or ""
     address = str(address).strip()
@@ -134,7 +159,7 @@ def _row_to_page_dict(job_id: UUID, row: dict[str, Any]) -> dict[str, Any]:
         "h1": _as_str(_cell(row, "h1", "h1-1", "H1-1", "H1")),
         "word_count": _to_int(_cell(row, "word_count", "word count", "Word Count")),
         "indexability": _as_str(_cell(row, "indexability", "Indexability")),
-        "crawl_depth": _to_int(_cell(row, "crawl_depth", "crawl depth", "Crawl Depth")),
+        "crawl_depth": _to_crawl_depth(_cell(row, "crawl_depth", "crawl depth", "Crawl Depth")),
         "response_time": _to_float(_cell(row, "response_time", "response time", "Response Time")),
         "canonical": _as_str(_cell(row, "canonical", "Canonical")),
         "canonical_link_element": _as_str(
@@ -152,6 +177,7 @@ def _row_to_page_dict(job_id: UUID, row: dict[str, Any]) -> dict[str, Any]:
         "http_version": _as_str(_cell(row, "http version", "HTTP Version")),
         "x_robots_tag": _as_str(_cell(row, "x-robots-tag 1", "x-robots-tag", "X-Robots-Tag 1")),
         "link_score": _to_float(_cell(row, "link score", "Link Score")),
+        "in_sitemap": _to_bool(_cell(row, "in_sitemap", "in sitemap", "In Sitemap")),
         "extra_metadata": meta,
     }
 
@@ -161,6 +187,27 @@ def _as_str(v: Any) -> str | None:
         return None
     s = str(v).strip()
     return s if s else None
+
+
+def _maybe_emit_loading_heartbeat(
+    db: Session,
+    job_id: UUID,
+    *,
+    last_heartbeat_at: float,
+    status_message: str,
+    urls_crawled: int | None = None,
+) -> float:
+    now = time.monotonic()
+    if now - last_heartbeat_at < EXTRACTION_HEARTBEAT_INTERVAL_SECONDS:
+        return last_heartbeat_at
+
+    update_heartbeat(
+        db,
+        job_id,
+        urls_crawled=urls_crawled,
+        status_message=status_message,
+    )
+    return now
 
 
 def _severity_for_issue(issue_text: str) -> IssueSeverity:
@@ -221,7 +268,8 @@ def extract_crawl_to_postgres(
     ):
         pass
 
-    update_heartbeat(db, job_id)
+    update_heartbeat(db, job_id, status_message="Loading pages into the database…")
+    last_loading_heartbeat_at = time.monotonic()
 
     tab_name = "internal_all.csv"
     try:
@@ -235,7 +283,7 @@ def extract_crawl_to_postgres(
     total = 0
 
     def flush_pages() -> None:
-        nonlocal batch, total
+        nonlocal batch, last_loading_heartbeat_at, total
         if not batch:
             return
         db.bulk_insert_mappings(CrawlPage, batch)
@@ -246,13 +294,26 @@ def extract_crawl_to_postgres(
                 address_to_page_id[addr] = m["id"]
         total += len(batch)
         batch = []
-        update_heartbeat(db, job_id)
+        update_heartbeat(
+            db,
+            job_id,
+            urls_crawled=total,
+            status_message="Loading pages into the database…",
+        )
+        last_loading_heartbeat_at = time.monotonic()
 
     try:
         for row in tab_iter:
             if not isinstance(row, dict):
                 continue
             batch.append(_row_to_page_dict(job_id, row))
+            last_loading_heartbeat_at = _maybe_emit_loading_heartbeat(
+                db,
+                job_id,
+                last_heartbeat_at=last_loading_heartbeat_at,
+                status_message="Loading pages into the database…",
+                urls_crawled=total + len(batch),
+            )
             if len(batch) >= CHUNK_SIZE:
                 flush_pages()
         flush_pages()
@@ -264,12 +325,14 @@ def extract_crawl_to_postgres(
     job.urls_crawled = total
     db.add(job)
     db.commit()
-    update_heartbeat(db, job_id)
+    update_heartbeat(db, job_id, urls_crawled=total, status_message="Loading issues into the database…")
+    last_loading_heartbeat_at = time.monotonic()
 
     # --- Issues from bundled reports ---------------------------------
     issue_batch: list[dict[str, Any]] = []
 
     def collect_issue_rows(method: str) -> None:
+        nonlocal last_loading_heartbeat_at
         fn = getattr(crawl, method, None)
         if not callable(fn):
             return
@@ -294,6 +357,13 @@ def extract_crawl_to_postgres(
                     "details": details,
                 }
             )
+            last_loading_heartbeat_at = _maybe_emit_loading_heartbeat(
+                db,
+                job_id,
+                last_heartbeat_at=last_loading_heartbeat_at,
+                status_message="Loading issues into the database…",
+                urls_crawled=total,
+            )
 
     for m in (
         "security_issues_report",
@@ -306,7 +376,8 @@ def extract_crawl_to_postgres(
     if issue_batch:
         db.bulk_insert_mappings(CrawlIssue, issue_batch)
         db.commit()
-    update_heartbeat(db, job_id)
+    update_heartbeat(db, job_id, urls_crawled=total, status_message="Loading links into the database…")
+    last_loading_heartbeat_at = time.monotonic()
 
     # --- Outlinks -----------------------------------------------------
     link_batch: list[dict[str, Any]] = []
@@ -329,18 +400,37 @@ def extract_crawl_to_postgres(
                     "status_code": _to_int(_cell(row, "status code", "Status Code")),
                 }
             )
+            last_loading_heartbeat_at = _maybe_emit_loading_heartbeat(
+                db,
+                job_id,
+                last_heartbeat_at=last_loading_heartbeat_at,
+                status_message="Loading links into the database…",
+                urls_crawled=total,
+            )
             if len(link_batch) >= CHUNK_SIZE:
                 db.bulk_insert_mappings(CrawlLink, link_batch)
                 db.commit()
                 link_batch = []
-                update_heartbeat(db, job_id)
+                update_heartbeat(
+                    db,
+                    job_id,
+                    urls_crawled=total,
+                    status_message="Loading links into the database…",
+                )
+                last_loading_heartbeat_at = time.monotonic()
         if link_batch:
             db.bulk_insert_mappings(CrawlLink, link_batch)
             db.commit()
     except Exception as e:
         logger.warning("Link extraction failed (non-fatal): %s", e)
 
-    update_heartbeat(db, job_id, progress_pct=100.0)
+    update_heartbeat(
+        db,
+        job_id,
+        progress_pct=100.0,
+        urls_crawled=total,
+        status_message="Finished loading crawl results.",
+    )
 
     transition_job_status(
         db,

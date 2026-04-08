@@ -86,10 +86,20 @@ def transition_job_status(
     return True
 
 
-def update_heartbeat(db: Session, job_id: UUID, progress_pct: float | None = None) -> None:
+def update_heartbeat(
+    db: Session,
+    job_id: UUID,
+    progress_pct: float | None = None,
+    urls_crawled: int | None = None,
+    status_message: str | None = None,
+) -> None:
     values: dict = {"last_heartbeat_at": utcnow(), "updated_at": utcnow()}
     if progress_pct is not None:
         values["progress_pct"] = progress_pct
+    if urls_crawled is not None:
+        values["urls_crawled"] = urls_crawled
+    if status_message is not None:
+        values["status_message"] = status_message[:512]
     db.execute(update(CrawlJob).where(CrawlJob.id == job_id).values(**values))
     db.commit()
 

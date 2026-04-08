@@ -56,6 +56,8 @@ export function CrawlProgress({
           progress_pct: job.progress_pct,
           error: job.error,
           last_heartbeat_at: job.last_heartbeat_at,
+          urls_crawled: job.urls_crawled,
+          status_message: job.status_message,
         };
       },
       {
@@ -169,11 +171,21 @@ export function CrawlProgress({
               {snapshot ? jobStatusLabel(snapshot.status) : "Unknown"}
             </p>
             <p className="text-[12px] text-[var(--muted)]">
-              {snapshot?.status === "extracting" && "Reading crawl results from engine…"}
-              {snapshot?.status === "loading" && "Loading rows into the database…"}
-              {snapshot?.status === "running" && "Crawl is running (progress is approximate)."}
-              {snapshot?.status === "queued" && "Job is queued and will start shortly."}
-              {snapshot?.status === "provisioning" && "Provisioning worker resources…"}
+              {snapshot?.status_message
+                ? snapshot.status_message
+                : snapshot?.status === "extracting"
+                  ? "Reading crawl results from engine…"
+                  : snapshot?.status === "loading"
+                    ? "Loading rows into the database…"
+                    : snapshot?.status === "running"
+                      ? snapshot.urls_crawled
+                        ? `Crawling — ${snapshot.urls_crawled.toLocaleString()} URLs processed`
+                        : "Crawl is running…"
+                      : snapshot?.status === "queued"
+                        ? "Job is queued and will start shortly."
+                        : snapshot?.status === "provisioning"
+                          ? "Provisioning worker resources…"
+                          : null}
             </p>
             {active && snapshot?.heartbeat_label ? (
               <p className="mt-1 font-mono text-[11px] text-[var(--muted)]">
@@ -198,7 +210,7 @@ export function CrawlProgress({
               />
             </div>
             <p className="mt-1 font-mono text-[11px] font-medium text-[var(--muted)]">
-              {pct}%
+              {pct}%{snapshot?.urls_crawled ? ` · ${snapshot.urls_crawled.toLocaleString()} URLs` : ""}
             </p>
           </div>
         ) : null}

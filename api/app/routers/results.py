@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 from app.auth import TenantDep
 from app.db import get_db
 from app.models import CrawlIssue, CrawlJob, CrawlLink, CrawlPage
-from app.schemas import CrawlIssueResponse, CrawlLinkResponse, CrawlPageResponse, PaginatedResponse
+from app.schemas import CrawlComparisonSummary, CrawlIssueResponse, CrawlLinkResponse, CrawlPageResponse, PaginatedResponse
+from app.services.crawl_summary import build_comparison_summary
 
 router = APIRouter(tags=["results"])
 
@@ -59,6 +60,7 @@ def _apply_page_filters(
     indexability: str | None,
     content_type: str | None,
     has_issues: bool | None,
+    in_sitemap: bool | None,
     search: str | None,
 ):
     stmt = stmt.where(CrawlPage.job_id == job_id)
@@ -82,6 +84,10 @@ def _apply_page_filters(
             and_(CrawlIssue.job_id == job_id, CrawlIssue.page_id == CrawlPage.id)
         )
         stmt = stmt.where(~sub)
+    if in_sitemap is True:
+        stmt = stmt.where(CrawlPage.in_sitemap.is_(True))
+    elif in_sitemap is False:
+        stmt = stmt.where(CrawlPage.in_sitemap.is_(False))
     if search:
         term = f"%{search.strip()}%"
         stmt = stmt.where(or_(CrawlPage.address.ilike(term), CrawlPage.title.ilike(term)))
@@ -140,6 +146,7 @@ def list_pages(
     indexability: Annotated[str | None, Query()] = None,
     content_type: Annotated[str | None, Query()] = None,
     has_issues: Annotated[bool | None, Query()] = None,
+    in_sitemap: Annotated[bool | None, Query()] = None,
     search: Annotated[str | None, Query()] = None,
 ) -> PaginatedResponse[CrawlPageResponse]:
     _job_for_tenant(db, tenant.id, job_id)
@@ -148,17 +155,18 @@ def list_pages(
 
     lo, hi = _parse_status_filter(status_code)
 
-    count_stmt = select(func.count(CrawlPage.id))
-    count_stmt = _apply_page_filters(
-        count_stmt,
-        job_id,
+    filter_kw = dict(
         status_lo=lo,
         status_hi=hi,
         indexability=indexability,
         content_type=content_type,
         has_issues=has_issues,
+        in_sitemap=in_sitemap,
         search=search,
     )
+
+    count_stmt = select(func.count(CrawlPage.id))
+    count_stmt = _apply_page_filters(count_stmt, job_id, **filter_kw)
     total = int(db.execute(count_stmt).scalar_one())
 
     k1, kcol, idcol = _sort_columns(sort)
@@ -168,16 +176,7 @@ def list_pages(
         order = (k1.desc(), kcol.desc().nulls_last(), idcol.desc())
 
     q = select(CrawlPage)
-    q = _apply_page_filters(
-        q,
-        job_id,
-        status_lo=lo,
-        status_hi=hi,
-        indexability=indexability,
-        content_type=content_type,
-        has_issues=has_issues,
-        search=search,
-    )
+    q = _apply_page_filters(q, job_id, **filter_kw)
     q = q.order_by(*order)
 
     if cursor:
@@ -203,17 +202,39 @@ def list_pages(
     )
 
 
+_DEPTH_SENTINEL = 2_147_483_647
+
+
+def _fmt_depth(v: int | None) -> str:
+    if v is None or v >= _DEPTH_SENTINEL:
+        return ""
+    return str(v)
+
+
 def _csv_row(page: CrawlPage) -> dict[str, str]:
     return {
-        "id": str(page.id),
         "address": page.address,
         "status_code": "" if page.status_code is None else str(page.status_code),
         "title": page.title or "",
         "indexability": page.indexability or "",
+        "meta_description": page.meta_description or "",
+        "h1": page.h1 or "",
+        "canonical": page.canonical or "",
+        "canonical_link_element": page.canonical_link_element or "",
+        "meta_robots": page.meta_robots or "",
+        "x_robots_tag": page.x_robots_tag or "",
+        "pagination_status": page.pagination_status or "",
         "content_type": page.content_type or "",
+        "http_version": page.http_version or "",
+        "redirect_url": page.redirect_url or "",
+        "in_sitemap": "" if page.in_sitemap is None else ("Yes" if page.in_sitemap else "No"),
         "word_count": "" if page.word_count is None else str(page.word_count),
-        "crawl_depth": "" if page.crawl_depth is None else str(page.crawl_depth),
+        "crawl_depth": _fmt_depth(page.crawl_depth),
         "response_time": "" if page.response_time is None else str(page.response_time),
+        "size_bytes": "" if page.size_bytes is None else str(page.size_bytes),
+        "inlinks": "" if page.inlinks is None else str(page.inlinks),
+        "outlinks": "" if page.outlinks is None else str(page.outlinks),
+        "link_score": "" if page.link_score is None else str(page.link_score),
     }
 
 
@@ -227,6 +248,7 @@ def export_pages_csv(
     indexability: Annotated[str | None, Query()] = None,
     content_type: Annotated[str | None, Query()] = None,
     has_issues: Annotated[bool | None, Query()] = None,
+    in_sitemap: Annotated[bool | None, Query()] = None,
     search: Annotated[str | None, Query()] = None,
 ) -> StreamingResponse:
     if format.lower() != "csv":
@@ -243,20 +265,34 @@ def export_pages_csv(
         indexability=indexability,
         content_type=content_type,
         has_issues=has_issues,
+        in_sitemap=in_sitemap,
         search=search,
     )
     q = q.order_by(CrawlPage.address.asc(), CrawlPage.id.asc())
 
     fieldnames = [
-        "id",
         "address",
         "status_code",
         "title",
         "indexability",
+        "meta_description",
+        "h1",
+        "canonical",
+        "canonical_link_element",
+        "meta_robots",
+        "x_robots_tag",
+        "pagination_status",
         "content_type",
+        "http_version",
+        "redirect_url",
+        "in_sitemap",
         "word_count",
         "crawl_depth",
         "response_time",
+        "size_bytes",
+        "inlinks",
+        "outlinks",
+        "link_score",
     ]
 
     def gen():
@@ -316,3 +352,19 @@ def list_links(
         .limit(limit)
     ).scalars().all()
     return list(rows)
+
+
+@router.get("/{job_id}/summary", response_model=CrawlComparisonSummary)
+def get_crawl_summary(
+    job_id: UUID,
+    tenant: TenantDep,
+    db: Annotated[Session, Depends(get_db)],
+    previous_job_id: Annotated[UUID | None, Query()] = None,
+) -> CrawlComparisonSummary:
+    job = _job_for_tenant(db, tenant.id, job_id)
+    if job.status not in ("complete", "loading"):
+        raise HTTPException(
+            status_code=409,
+            detail="Summary is only available for completed crawls",
+        )
+    return build_comparison_summary(db, job, previous_job_id=previous_job_id)

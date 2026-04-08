@@ -16,8 +16,10 @@ export default function NewCrawlPage() {
   const api = useCrawlApi();
   const [url, setUrl] = useState("");
   const [profileId, setProfileId] = useState("");
+  const [maxUrls, setMaxUrls] = useState("");
   const [urlError, setUrlError] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [maxUrlsError, setMaxUrlsError] = useState<string | null>(null);
 
   const profilesQuery = useQuery({
     queryKey: ["profiles"],
@@ -31,6 +33,7 @@ export default function NewCrawlPage() {
       api.createCrawl({
         target_url: url.trim(),
         profile_id: profileId,
+        max_urls: maxUrls ? parseInt(maxUrls, 10) : null,
       }),
     onSuccess: (job) => {
       router.push(`/crawls/${job.job_id}`);
@@ -53,6 +56,20 @@ export default function NewCrawlPage() {
       ok = false;
     } else {
       setProfileError(null);
+    }
+    if (maxUrls) {
+      const n = parseInt(maxUrls, 10);
+      if (isNaN(n) || n < 1) {
+        setMaxUrlsError("Must be a positive number.");
+        ok = false;
+      } else if (n > 1_000_000) {
+        setMaxUrlsError("Maximum is 1,000,000.");
+        ok = false;
+      } else {
+        setMaxUrlsError(null);
+      }
+    } else {
+      setMaxUrlsError(null);
     }
     return ok;
   };
@@ -111,6 +128,21 @@ export default function NewCrawlPage() {
             </p>
           ) : null}
         </div>
+
+        <Input
+          label="URL limit"
+          name="max_urls"
+          type="number"
+          min={1}
+          max={1_000_000}
+          value={maxUrls}
+          onChange={(e) => setMaxUrls(e.target.value)}
+          placeholder="No limit"
+          error={maxUrlsError ?? undefined}
+        />
+        <p className="-mt-2 text-[12px] text-[var(--muted)]">
+          Optional. Cap the number of URLs the crawler will visit.
+        </p>
 
         {createMutation.isError ? (
           <Alert variant="error" title="Could not start crawl">

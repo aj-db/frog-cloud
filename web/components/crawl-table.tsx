@@ -21,6 +21,18 @@ const indexabilityOptions = [
   { value: "Non-Indexable", label: "Non-Indexable" },
 ];
 
+const sitemapOptions = [
+  { value: "", label: "Any sitemap status" },
+  { value: "true", label: "In sitemap" },
+  { value: "false", label: "Not in sitemap" },
+];
+
+const DEPTH_SENTINEL = 2_147_483_647;
+function formatDepth(v: number | null | undefined): string {
+  if (v == null || v >= DEPTH_SENTINEL) return "—";
+  return String(v);
+}
+
 export interface CrawlTableQuerySnapshot extends PagesQueryParams {
   cursor: string | null;
 }
@@ -28,6 +40,8 @@ export interface CrawlTableQuerySnapshot extends PagesQueryParams {
 export interface CrawlTableProps {
   jobId: string;
   issueFilter: IssueFilter | null;
+  onIssueFilterChange?: (filter: IssueFilter | null) => void;
+  issueTypes?: string[];
   onQuerySnapshot?: (q: CrawlTableQuerySnapshot) => void;
 }
 
@@ -36,13 +50,15 @@ function SortIndicator({ active, dir }: { active: boolean; dir: "asc" | "desc" }
   return <span aria-hidden>{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
-export function CrawlTable({ jobId, issueFilter, onQuerySnapshot }: CrawlTableProps) {
+export function CrawlTable({ jobId, issueFilter, onIssueFilterChange, issueTypes = [], onQuerySnapshot }: CrawlTableProps) {
   const api = useCrawlApi();
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorStack, setCursorStack] = useState<(string | null)[]>([]);
   const [sorting, setSorting] = useState<SortingState>([{ id: "address", desc: false }]);
   const [statusFilter, setStatusFilter] = useState("");
   const [indexability, setIndexability] = useState("");
+  const [contentType, setContentType] = useState("");
+  const [sitemapFilter, setSitemapFilter] = useState("");
   const [search, setSearch] = useState("");
   const [hasIssues, setHasIssues] = useState(false);
 
@@ -57,6 +73,8 @@ export function CrawlTable({ jobId, issueFilter, onQuerySnapshot }: CrawlTablePr
       dir: sortDir,
       status_code: statusFilter || undefined,
       indexability: indexability || undefined,
+      content_type: contentType || undefined,
+      in_sitemap: sitemapFilter === "true" ? true : sitemapFilter === "false" ? false : undefined,
       search: search || undefined,
       has_issues: hasIssues || undefined,
       issue_type: issueFilter?.issue_type,
@@ -68,6 +86,8 @@ export function CrawlTable({ jobId, issueFilter, onQuerySnapshot }: CrawlTablePr
       sortDir,
       statusFilter,
       indexability,
+      contentType,
+      sitemapFilter,
       search,
       hasIssues,
       issueFilter?.issue_type,
@@ -125,10 +145,128 @@ export function CrawlTable({ jobId, issueFilter, onQuerySnapshot }: CrawlTablePr
         ),
       },
       {
+        accessorKey: "indexability",
+        header: "Indexability",
+        cell: (info) => (
+          <span className="text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "meta_description",
+        header: "Meta Description",
+        cell: (info) => (
+          <span className="max-w-[180px] truncate text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "h1",
+        header: "H1",
+        cell: (info) => (
+          <span className="max-w-[160px] truncate text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "canonical",
+        header: "Canonical",
+        cell: (info) => (
+          <span className="max-w-[160px] truncate text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "canonical_link_element",
+        header: "Canonical Link",
+        cell: (info) => (
+          <span className="max-w-[160px] truncate text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "meta_robots",
+        header: "Meta Robots",
+        cell: (info) => (
+          <span className="max-w-[120px] truncate text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "x_robots_tag",
+        header: "X-Robots-Tag",
+        cell: (info) => (
+          <span className="max-w-[120px] truncate text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "pagination_status",
+        header: "Pagination",
+        cell: (info) => (
+          <span className="text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "content_type",
+        header: "Content Type",
+        cell: (info) => (
+          <span className="max-w-[120px] truncate text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "http_version",
+        header: "HTTP",
+        cell: (info) => (
+          <span className="font-mono text-[12px]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "redirect_url",
+        header: "Redirect URL",
+        cell: (info) => (
+          <span className="max-w-[160px] truncate text-[12px] text-[var(--muted)]">
+            {info.getValue<string | null>() ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "in_sitemap",
+        header: "Sitemap",
+        cell: (info) => {
+          const v = info.getValue<boolean | null>();
+          return (
+            <span className="text-[12px] text-[var(--muted)]">
+              {v === true ? "Yes" : v === false ? "No" : "—"}
+            </span>
+          );
+        },
+      },
+      {
         accessorKey: "word_count",
         header: "Words",
         cell: (info) => (
           <span className="font-mono text-[12px]">{info.getValue<number | null>() ?? "—"}</span>
+        ),
+      },
+      {
+        accessorKey: "crawl_depth",
+        header: "Depth",
+        cell: (info) => (
+          <span className="font-mono text-[12px]">{formatDepth(info.getValue<number | null>())}</span>
         ),
       },
       {
@@ -139,17 +277,29 @@ export function CrawlTable({ jobId, issueFilter, onQuerySnapshot }: CrawlTablePr
         ),
       },
       {
-        accessorKey: "indexability",
-        header: "Indexability",
+        accessorKey: "size_bytes",
+        header: "Size (B)",
         cell: (info) => (
-          <span className="text-[12px] text-[var(--muted)]">
-            {info.getValue<string | null>() ?? "—"}
-          </span>
+          <span className="font-mono text-[12px]">{info.getValue<number | null>() ?? "—"}</span>
         ),
       },
       {
-        accessorKey: "crawl_depth",
-        header: "Depth",
+        accessorKey: "inlinks",
+        header: "Inlinks",
+        cell: (info) => (
+          <span className="font-mono text-[12px]">{info.getValue<number | null>() ?? "—"}</span>
+        ),
+      },
+      {
+        accessorKey: "outlinks",
+        header: "Outlinks",
+        cell: (info) => (
+          <span className="font-mono text-[12px]">{info.getValue<number | null>() ?? "—"}</span>
+        ),
+      },
+      {
+        accessorKey: "link_score",
+        header: "Link Score",
         cell: (info) => (
           <span className="font-mono text-[12px]">{info.getValue<number | null>() ?? "—"}</span>
         ),
@@ -195,7 +345,7 @@ export function CrawlTable({ jobId, issueFilter, onQuerySnapshot }: CrawlTablePr
 
   return (
     <div className="space-y-3">
-      <div className="ds-card grid gap-3 sm:grid-cols-2">
+      <div className="ds-card grid items-end gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
         <Input
           label="Search URL or title"
           value={search}
@@ -243,7 +393,69 @@ export function CrawlTable({ jobId, issueFilter, onQuerySnapshot }: CrawlTablePr
             ))}
           </select>
         </div>
-        <label className="flex items-end gap-2 pb-2 text-[12px] font-medium text-[var(--charcoal)]">
+        <div>
+          <label className="ds-label" htmlFor="content-type-filter">
+            Content type
+          </label>
+          <input
+            id="content-type-filter"
+            className="ds-input"
+            value={contentType}
+            onChange={(e) => {
+              setContentType(e.target.value);
+              setCursor(null);
+              setCursorStack([]);
+            }}
+            placeholder="e.g. text/html"
+          />
+        </div>
+        <div>
+          <label className="ds-label" htmlFor="sitemap-filter">
+            Sitemap
+          </label>
+          <select
+            id="sitemap-filter"
+            className="ds-select"
+            value={sitemapFilter}
+            onChange={(e) => {
+              setSitemapFilter(e.target.value);
+              setCursor(null);
+              setCursorStack([]);
+            }}
+          >
+            {sitemapOptions.map((o) => (
+              <option key={o.value || "any"} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {issueTypes.length > 0 ? (
+          <div>
+            <label className="ds-label" htmlFor="issue-type-filter">
+              Issue type
+            </label>
+            <select
+              id="issue-type-filter"
+              className="ds-select"
+              value={issueFilter?.issue_type ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                onIssueFilterChange?.(val ? { issue_type: val } : null);
+                setCursor(null);
+                setCursorStack([]);
+              }}
+            >
+              <option value="">Any issue type</option>
+              {issueTypes.map((t) => (
+                <option key={t} value={t}>
+                  {t.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+        <label className="flex h-9 items-center gap-2 text-[12px] font-medium text-[var(--charcoal)]">
           <input
             type="checkbox"
             checked={hasIssues}
@@ -366,6 +578,33 @@ export function CrawlTable({ jobId, issueFilter, onQuerySnapshot }: CrawlTablePr
   );
 }
 
+function DrawerField({ label, value }: { label: string; value: string | number | null | undefined }) {
+  return (
+    <div>
+      <p className="ds-label">{label}</p>
+      <p className="break-all text-[var(--charcoal)]">{value ?? "—"}</p>
+    </div>
+  );
+}
+
+function DrawerMonoField({ label, value }: { label: string; value: string | number | null | undefined }) {
+  return (
+    <div>
+      <p className="ds-label">{label}</p>
+      <p className="font-mono font-medium text-[var(--charcoal)]">{value ?? "—"}</p>
+    </div>
+  );
+}
+
+function DrawerSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">{title}</p>
+      {children}
+    </div>
+  );
+}
+
 function PageDrawer({ row, onClose }: { row: CrawlPageRow; onClose: () => void }) {
   return (
     <div
@@ -399,45 +638,53 @@ function PageDrawer({ row, onClose }: { row: CrawlPageRow; onClose: () => void }
             Close
           </button>
         </div>
-        <div className="space-y-3 p-4 text-[13px]">
+        <div className="space-y-5 p-4 text-[13px]">
           <div>
             <p className="ds-label">URL</p>
             <p className="break-all text-[var(--charcoal)]">{row.address}</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <p className="ds-label">Status</p>
-              <p className="font-mono font-medium text-[var(--charcoal)]">
-                {row.status_code ?? "—"}
-              </p>
+
+          <DrawerSection title="Crawl metrics">
+            <div className="grid grid-cols-2 gap-3">
+              <DrawerMonoField label="Status" value={row.status_code} />
+              <DrawerMonoField label="Depth" value={formatDepth(row.crawl_depth)} />
+              <DrawerMonoField label="Words" value={row.word_count} />
+              <DrawerMonoField label="Response (ms)" value={row.response_time} />
+              <DrawerMonoField label="Size (bytes)" value={row.size_bytes} />
+              <DrawerMonoField label="Link score" value={row.link_score} />
             </div>
-            <div>
-              <p className="ds-label">Depth</p>
-              <p className="font-mono font-medium text-[var(--charcoal)]">
-                {row.crawl_depth ?? "—"}
-              </p>
+          </DrawerSection>
+
+          <DrawerSection title="SEO on-page">
+            <DrawerField label="Title" value={row.title} />
+            <DrawerField label="Meta description" value={row.meta_description} />
+            <DrawerField label="H1" value={row.h1} />
+            <DrawerField label="Indexability" value={row.indexability} />
+            <DrawerField label="Canonical" value={row.canonical} />
+            <DrawerField label="Canonical link element" value={row.canonical_link_element} />
+          </DrawerSection>
+
+          <DrawerSection title="Technical">
+            <div className="grid grid-cols-2 gap-3">
+              <DrawerField label="Content type" value={row.content_type} />
+              <DrawerField label="HTTP version" value={row.http_version} />
+              <DrawerField
+                label="In sitemap"
+                value={row.in_sitemap === true ? "Yes" : row.in_sitemap === false ? "No" : null}
+              />
             </div>
-            <div>
-              <p className="ds-label">Words</p>
-              <p className="font-mono font-medium text-[var(--charcoal)]">
-                {row.word_count ?? "—"}
-              </p>
+            <DrawerField label="Redirect URL" value={row.redirect_url} />
+            <DrawerField label="Meta robots" value={row.meta_robots} />
+            <DrawerField label="X-Robots-Tag" value={row.x_robots_tag} />
+            <DrawerField label="Pagination" value={row.pagination_status} />
+          </DrawerSection>
+
+          <DrawerSection title="Link graph">
+            <div className="grid grid-cols-2 gap-3">
+              <DrawerMonoField label="Inlinks" value={row.inlinks} />
+              <DrawerMonoField label="Outlinks" value={row.outlinks} />
             </div>
-            <div>
-              <p className="ds-label">Response (ms)</p>
-              <p className="font-mono font-medium text-[var(--charcoal)]">
-                {row.response_time ?? "—"}
-              </p>
-            </div>
-          </div>
-          <div>
-            <p className="ds-label">Title</p>
-            <p className="text-[var(--charcoal)]">{row.title ?? "—"}</p>
-          </div>
-          <div>
-            <p className="ds-label">Indexability</p>
-            <p className="text-[var(--charcoal)]">{row.indexability ?? "—"}</p>
-          </div>
+          </DrawerSection>
         </div>
       </div>
     </div>

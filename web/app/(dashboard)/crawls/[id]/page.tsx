@@ -15,10 +15,10 @@ import { Button } from "@/components/button";
 import { CrawlProgress } from "@/components/crawl-progress";
 import type { CrawlTableQuerySnapshot } from "@/components/crawl-table";
 import { CrawlTable } from "@/components/crawl-table";
+import { CrawlChangeSummary } from "@/components/crawl-change-summary";
 import { CrawlStatusBadge } from "@/components/crawl-status-badge";
-import { IssueSummary, type IssueFilter } from "@/components/issue-summary";
+import type { IssueFilter } from "@/components/issue-summary";
 import { JobErrorState } from "@/components/job-error-state";
-import { StatCard } from "@/components/stat-card";
 import type { CrawlIssueRow, CrawlJob, CrawlLinkRow } from "@/lib/api-types";
 import { jobIsActive } from "@/lib/job-status";
 import { useCrawlApi } from "@/lib/use-crawl-api";
@@ -52,6 +52,11 @@ export default function CrawlDetailPage() {
 
   const [job, setJob] = useState<CrawlJob | null>(null);
   const [issueFilter, setIssueFilter] = useState<IssueFilter | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const deleteMutation = useMutation({
+    mutationFn: () => api.deleteCrawl(id),
+    onSuccess: () => router.push("/crawls"),
+  });
   const [exportSnapshot, setExportSnapshot] = useState<CrawlTableQuerySnapshot | null>(null);
   const [linksCursor, setLinksCursor] = useState<string | null>(null);
   const [linksStack, setLinksStack] = useState<(string | null)[]>([]);
@@ -122,6 +127,16 @@ export default function CrawlDetailPage() {
     return { err, warn, info, total: list.length };
   }, [issuesQuery.data]);
 
+  const issueTypeList = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of issuesQuery.data ?? []) {
+      counts.set(i.issue_type, (counts.get(i.issue_type) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([t]) => t);
+  }, [issuesQuery.data]);
+
   const issueColumns = useMemo(
     () => [
       issueColumnHelper.accessor("issue_type", {
@@ -181,6 +196,14 @@ export default function CrawlDetailPage() {
         header: "Code",
         cell: (c) => (
           <span className="font-mono text-[12px]">{c.getValue() ?? "—"}</span>
+        ),
+      }),
+      linkColumnHelper.accessor("link_type", {
+        header: "Type",
+        cell: (c) => (
+          <span className="text-[12px] text-[var(--muted)]">
+            {c.getValue() ?? "—"}
+          </span>
         ),
       }),
       linkColumnHelper.accessor("anchor_text", {
@@ -246,6 +269,15 @@ export default function CrawlDetailPage() {
               Export CSV
             </Button>
           ) : null}
+          {!active ? (
+            <button
+              type="button"
+              className="ds-btn ds-btn--ghost text-[var(--muted)] hover:text-[var(--red)]"
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              Delete
+            </button>
+          ) : null}
           <Link href="/crawls/new" className="ds-btn ds-btn--ghost no-underline">
             New crawl
           </Link>
@@ -273,39 +305,21 @@ export default function CrawlDetailPage() {
         />
       ) : null}
 
-      {showStats ? (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <StatCard
-            label="Pages crawled"
-            value={job.urls_crawled ?? 0}
-            delta={
-              issueStats.total
-                ? { value: `${issueStats.total} open issues`, positive: false }
-                : undefined
-            }
-          />
-          <StatCard label="Issues found" value={issueStats.total} />
-          <StatCard
-            label="Avg response (ms)"
-            value={
-              job.avg_response_time_ms != null
-                ? Math.round(job.avg_response_time_ms)
-                : "—"
-            }
-          />
-        </div>
-      ) : null}
-
       {showResultTables ? (
-        <>
-          <IssueSummary
-            issues={issuesQuery.data ?? []}
-            activeFilter={issueFilter}
-            onSelect={setIssueFilter}
+        <div className="space-y-6">
+          <CrawlChangeSummary
+            jobId={id}
+            targetUrl={job.target_url}
+            enabled={job.status === "complete"}
+            activeIssueType={issueFilter?.issue_type ?? null}
+            onIssueSelect={(type) => {
+              setIssueFilter(type ? { issue_type: type } : null);
+              if (type) setTab("pages");
+            }}
           />
 
-          <div>
-            <div className="mb-3 flex flex-wrap gap-1 border-b" style={{ borderColor: "var(--border-faded)" }}>
+          <div className="min-w-0 space-y-4">
+            <div className="flex flex-wrap gap-1 border-b" style={{ borderColor: "var(--border-faded)" }}>
               {(
                 [
                   ["pages", "Pages"],
@@ -333,6 +347,8 @@ export default function CrawlDetailPage() {
               <CrawlTable
                 jobId={id}
                 issueFilter={issueFilter}
+                onIssueFilterChange={setIssueFilter}
+                issueTypes={issueTypeList}
                 onQuerySnapshot={setExportSnapshot}
               />
             ) : null}
@@ -405,7 +421,7 @@ export default function CrawlDetailPage() {
                       <tbody>
                         {linkRows.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="py-8 text-center text-[var(--muted)]">
+                            <td colSpan={5} className="py-8 text-center text-[var(--muted)]">
                               No links indexed yet.
                             </td>
                           </tr>
@@ -455,7 +471,48 @@ export default function CrawlDetailPage() {
               </div>
             ) : null}
           </div>
-        </>
+        </div>
+      ) : null}
+
+      {showDeleteConfirm ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm delete"
+        >
+          <div
+            className="w-full max-w-sm space-y-4 border bg-[var(--card)] p-6 shadow-lg"
+            style={{ borderColor: "var(--border)", borderRadius: "var(--radius)" }}
+          >
+            <p className="font-soehne text-[14px] font-semibold text-[var(--charcoal)]">
+              Delete this crawl?
+            </p>
+            <p className="text-[13px] text-[var(--muted)]">
+              This will permanently remove the crawl and all its pages, issues, and links.
+              This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={deleteMutation.isPending}
+                onClick={() => setShowDeleteConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                loading={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate()}
+                className="!bg-[var(--red)] !text-white"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

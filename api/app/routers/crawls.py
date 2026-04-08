@@ -6,7 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth import TenantDep
@@ -77,6 +77,7 @@ def create_crawl(
         tenant_id=tenant.id,
         profile_id=profile.id,
         target_url=body.target_url.strip(),
+        max_urls=body.max_urls,
         status=JobStatus.queued,
         executor=executor,
         artifact_prefix=f"tenants/{tenant.id}/jobs/",
@@ -96,10 +97,17 @@ def list_crawls(
     db: Annotated[Session, Depends(get_db)],
     cursor: Annotated[str | None, Query(description="Opaque pagination cursor (job id)")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    target_url: Annotated[str | None, Query()] = None,
+    status: Annotated[str | None, Query()] = None,
 ) -> CrawlJobListEnvelope:
     q = select(CrawlJob).where(CrawlJob.tenant_id == tenant.id).order_by(
         CrawlJob.created_at.desc(), CrawlJob.id.desc()
     )
+    if target_url:
+        q = q.where(CrawlJob.target_url == target_url)
+    if status:
+        q = q.where(CrawlJob.status == status)
+
     if cursor:
         try:
             cur_uuid = UUID(cursor)
@@ -159,6 +167,7 @@ def retry_crawl(
         tenant_id=tenant.id,
         profile_id=old.profile_id,
         target_url=old.target_url,
+        max_urls=old.max_urls,
         status=JobStatus.queued,
         executor=executor,
         artifact_prefix=f"tenants/{tenant.id}/jobs/",
@@ -170,6 +179,29 @@ def retry_crawl(
     _dispatch_job(new_job.id, executor, request)
 
     return CrawlJobCreateAccepted(job_id=str(new_job.id), status="queued")
+
+
+_TERMINAL_STATUSES = frozenset({JobStatus.complete, JobStatus.failed, JobStatus.cancelled})
+
+
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_crawl(
+    job_id: UUID,
+    tenant: TenantDep,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    job = db.execute(
+        select(CrawlJob).where(and_(CrawlJob.id == job_id, CrawlJob.tenant_id == tenant.id))
+    ).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status not in _TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete a job in '{job.status.value}' state",
+        )
+    db.execute(delete(CrawlJob).where(CrawlJob.id == job_id))
+    db.commit()
 
 
 @router.post("/{job_id}/duplicate", response_model=CrawlJobCreateAccepted, status_code=status.HTTP_202_ACCEPTED)
@@ -190,6 +222,7 @@ def duplicate_crawl(
         tenant_id=tenant.id,
         profile_id=old.profile_id,
         target_url=old.target_url,
+        max_urls=old.max_urls,
         status=JobStatus.queued,
         executor=executor,
         artifact_prefix=f"tenants/{tenant.id}/jobs/",

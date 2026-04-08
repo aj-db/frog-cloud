@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import shlex
 import subprocess
 import tempfile
@@ -35,6 +36,9 @@ DEFAULT_POLL_INTERVAL_SECONDS = 10.0
 MAX_POLL_INTERVAL_SECONDS = 60.0
 DEFAULT_CRAWL_HEARTBEAT_SECONDS = 15.0
 CRAWL_LOG_TAIL_CHARS = 4000
+LIMIT_STOP_GRACE_SECONDS = 30.0
+ARTIFACT_DISCOVERY_TIMEOUT_SECONDS = 15.0
+ARTIFACT_DISCOVERY_POLL_SECONDS = 0.5
 
 
 def _metadata_get(path: str, timeout: float = 5.0) -> str:
@@ -254,18 +258,128 @@ def _format_crawl_failure(
     return "\n".join(parts)
 
 
+import re
+
+_PROGRESS_RE = re.compile(
+    r"SpiderProgress\s*\[.*?mCompleted=([0-9,]+).*?mWaiting=([0-9,]+).*?mCompleted=([0-9.]+)%"
+)
+_DBCONTEXT_PATH_RE = re.compile(r"Torn down DbContext with path (\S+)")
+
+
+def _parse_crawl_progress(stdout_log: Path) -> tuple[float | None, int | None]:
+    """Read the latest SpiderProgress line from the SF stdout log.
+
+    Returns (progress_pct, urls_completed) or (None, None) if not found.
+    """
+    try:
+        text = stdout_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None, None
+
+    last_match = None
+    for match in _PROGRESS_RE.finditer(text):
+        last_match = match
+
+    if last_match is None:
+        return None, None
+
+    completed = int(last_match.group(1).replace(",", ""))
+    pct = float(last_match.group(3))
+    return pct, completed
+
+
+def _signal_process_group(process: subprocess.Popen[str], sig: int) -> None:
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        return
+
+
+def _find_internal_db_artifact_from_stdout(stdout_log: Path) -> Path | None:
+    try:
+        text = stdout_log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    matches = _DBCONTEXT_PATH_RE.findall(text)
+    if not matches:
+        return None
+
+    candidate = Path(matches[-1])
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def _wait_for_crawl_artifact(output_dir: Path, stdout_log: Path) -> Path | None:
+    deadline = time.monotonic() + ARTIFACT_DISCOVERY_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        artifact = _find_crawl_artifact(output_dir)
+        if artifact is None:
+            artifact = _find_internal_db_artifact_from_stdout(stdout_log)
+        if artifact is not None:
+            return artifact
+        time.sleep(ARTIFACT_DISCOVERY_POLL_SECONDS)
+    return None
+
+
 def _wait_for_crawl_process(
     process: subprocess.Popen[str],
     *,
     db: Session,
     job_id: UUID,
     heartbeat_interval_seconds: float,
-) -> int:
+    stdout_log: Path | None = None,
+    max_urls: int | None = None,
+) -> tuple[int, bool]:
+    limit_stop_requested = False
+    limit_stop_requested_at: float | None = None
+
     while True:
         try:
-            return process.wait(timeout=heartbeat_interval_seconds)
+            return process.wait(timeout=heartbeat_interval_seconds), limit_stop_requested
         except subprocess.TimeoutExpired:
-            update_heartbeat(db, job_id)
+            pct, completed = None, None
+            msg: str | None = None
+            if stdout_log is not None:
+                pct, completed = _parse_crawl_progress(stdout_log)
+                if completed is not None and pct is not None:
+                    msg = f"Crawling — {completed:,} URLs processed ({pct:.1f}%)"
+            if (
+                max_urls is not None
+                and completed is not None
+                and completed >= max_urls
+                and not limit_stop_requested
+            ):
+                limit_stop_requested = True
+                limit_stop_requested_at = time.monotonic()
+                msg = f"Crawl limit reached — stopping at {completed:,} URLs"
+                logger.info(
+                    "Job %s reached max_urls=%s at completed=%s; sending SIGTERM",
+                    job_id,
+                    max_urls,
+                    completed,
+                )
+                _signal_process_group(process, signal.SIGTERM)
+            elif (
+                limit_stop_requested
+                and limit_stop_requested_at is not None
+                and time.monotonic() - limit_stop_requested_at > LIMIT_STOP_GRACE_SECONDS
+            ):
+                msg = "Crawl limit reached — force stopping crawl process"
+                logger.warning(
+                    "Job %s did not exit %.1fs after limit stop; sending SIGKILL",
+                    job_id,
+                    LIMIT_STOP_GRACE_SECONDS,
+                )
+                _signal_process_group(process, signal.SIGKILL)
+            update_heartbeat(
+                db,
+                job_id,
+                progress_pct=pct,
+                urls_crawled=completed,
+                status_message=msg,
+            )
 
 
 def _run_crawl_cli(
@@ -276,6 +390,7 @@ def _run_crawl_cli(
     output_dir: Path,
     cli_path: str | None,
     config: Path | None,
+    max_urls: int | None,
 ) -> None:
     from screamingfrog.cli.exports import resolve_cli_path
 
@@ -319,17 +434,20 @@ def _run_crawl_cli(
             stderr=stderr_handle,
             text=True,
             env=os.environ.copy(),
+            start_new_session=True,
         )
-        returncode = _wait_for_crawl_process(
+        returncode, stopped_due_to_limit = _wait_for_crawl_process(
             process,
             db=db,
             job_id=job_id,
             heartbeat_interval_seconds=heartbeat_interval_seconds,
+            stdout_log=stdout_log,
+            max_urls=max_urls,
         )
 
     logger.info("Screaming Frog crawl for job %s exited with code %s", job_id, returncode)
 
-    if returncode != 0:
+    if returncode != 0 and not stopped_due_to_limit:
         raise RuntimeError(
             _format_crawl_failure(
                 returncode=returncode,
@@ -337,6 +455,8 @@ def _run_crawl_cli(
                 stderr_log=stderr_log,
             )
         )
+    if stopped_due_to_limit:
+        logger.info("Crawl for job %s stopped after reaching max_urls=%s", job_id, max_urls)
 
 
 def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
@@ -350,6 +470,8 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
         if job is None:
             return
 
+        update_heartbeat(db, job_id, status_message="Loading crawl profile…")
+
         profile = db.execute(
             select(CrawlProfile).where(CrawlProfile.id == job.profile_id)
         ).scalar_one_or_none()
@@ -358,11 +480,14 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
             return
 
         output_dir = Path(tempfile.mkdtemp(prefix=f"sf_gce_{job_id}_"))
+
+        update_heartbeat(db, job_id, status_message="Downloading crawl configuration…")
         config_local = _resolve_profile_config(profile, output_dir)
         if config_local is None:
             set_job_error(db, job_id, f"Config not found: {profile.config_path.strip()}")
             return
 
+        update_heartbeat(db, job_id, status_message="Starting crawl engine…")
         try:
             _run_crawl_cli(
                 db=db,
@@ -371,6 +496,7 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
                 output_dir=output_dir,
                 cli_path=os.environ.get("SF_CLI_PATH"),
                 config=config_local,
+                max_urls=job.max_urls,
             )
         except RuntimeError as e:
             set_job_error(db, job_id, str(e)[:8000])
@@ -380,13 +506,15 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
             set_job_error(db, job_id, f"Crawl failed to start: {e}\n{traceback.format_exc()}")
             return
 
-        update_heartbeat(db, job_id)
+        update_heartbeat(db, job_id, status_message="Crawl complete — locating artifact…")
         logger.info("Looking for crawl artifact for job %s in %s", job_id, output_dir)
-        artifact = _find_crawl_artifact(output_dir)
+        stdout_log = output_dir / "screamingfrog.stdout.log"
+        artifact = _wait_for_crawl_artifact(output_dir, stdout_log)
         if artifact is None:
             set_job_error(db, job_id, "No crawl artifact found after GCE crawl")
             return
 
+        update_heartbeat(db, job_id, status_message="Extracting results into database…")
         logger.info("Found crawl artifact for job %s at %s", job_id, artifact)
         extract_crawl_to_postgres(
             db,

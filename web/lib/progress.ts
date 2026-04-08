@@ -3,6 +3,8 @@ export interface PollSnapshot {
   progress_pct: number | null;
   error: string | null;
   last_heartbeat_at?: string | null;
+  urls_crawled?: number | null;
+  status_message?: string | null;
 }
 
 export interface PollControllerOptions {

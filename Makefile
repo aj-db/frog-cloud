@@ -21,19 +21,14 @@ web-dev-staging:
 	cd web && npm run dev:staging
 
 dev-status:
-	@python3 - <<'PY'
-	import socket
-	for port, label in ((8000, "api"), (3001, "web-local"), (3002, "web-staging")):
-	    s = socket.socket()
-	    s.settimeout(0.3)
-	    try:
-	        s.connect(("127.0.0.1", port))
-	        print(f"{label}: http://localhost:{port} (up)")
-	    except Exception:
-	        print(f"{label}: http://localhost:{port} (down)")
-	    finally:
-	        s.close()
-	PY
+	@for spec in "8000 api" "3001 web-local" "3002 web-staging"; do \
+		set -- $$spec; \
+		if python3 -c "import socket; socket.create_connection(('localhost', $$1), 0.3).close()"; then \
+			echo "$$2: http://localhost:$$1 (up)"; \
+		else \
+			echo "$$2: http://localhost:$$1 (down)"; \
+		fi; \
+	done
 
 dev-stop:
 	@python3 scripts/dev_cleanup.py

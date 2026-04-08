@@ -85,6 +85,7 @@ class CrawlProfileResponse(BaseModel):
 class CrawlJobCreate(BaseModel):
     profile_id: str
     target_url: str = Field(..., min_length=1)
+    max_urls: int | None = Field(default=None, ge=1, le=1_000_000)
 
 
 class CrawlJobResponse(BaseModel):
@@ -100,7 +101,9 @@ class CrawlJobResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     last_heartbeat_at: datetime | None
+    max_urls: int | None
     urls_crawled: int
+    status_message: str | None
     error: str | None
     artifact_prefix: str | None
     created_at: datetime
@@ -124,7 +127,9 @@ class CrawlJobListResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     last_heartbeat_at: datetime | None
+    max_urls: int | None
     urls_crawled: int
+    status_message: str | None
     error: str | None
     created_at: datetime
     updated_at: datetime
@@ -172,6 +177,7 @@ class CrawlPageResponse(BaseModel):
     http_version: str | None
     x_robots_tag: str | None
     link_score: float | None
+    in_sitemap: bool | None
     extra_metadata: dict[str, Any] = Field(
         default_factory=dict,
         serialization_alias="metadata",
@@ -255,6 +261,55 @@ class ScheduledCrawlResponse(BaseModel):
     @field_serializer("id", "tenant_id", "profile_id")
     def serialize_uuids(self, v: Any) -> str:
         return str(v)
+
+
+# --- Crawl summary / comparison -----------------------------------------------
+
+
+class StatusCodeDistribution(BaseModel):
+    status_2xx: int = 0
+    status_3xx: int = 0
+    status_4xx: int = 0
+    status_5xx: int = 0
+    other: int = 0
+
+
+class IndexabilityDistribution(BaseModel):
+    indexable: int = 0
+    non_indexable: int = 0
+
+
+class SitemapCoverage(BaseModel):
+    in_sitemap: int = 0
+    not_in_sitemap: int = 0
+    unknown: int = 0
+
+
+class IssueTypeDelta(BaseModel):
+    issue_type: str
+    previous_count: int
+    current_count: int
+    delta: int
+
+
+class CrawlSnapshotAggregates(BaseModel):
+    job_id: str
+    target_url: str
+    completed_at: datetime | None
+    urls_crawled: int
+    avg_response_time_ms: float | None
+    issues_count: int
+    status_codes: StatusCodeDistribution
+    indexability: IndexabilityDistribution
+    sitemap_coverage: SitemapCoverage
+
+
+class CrawlComparisonSummary(BaseModel):
+    current: CrawlSnapshotAggregates
+    previous: CrawlSnapshotAggregates | None = None
+    new_issue_types: list[str] = []
+    resolved_issue_types: list[str] = []
+    issue_type_deltas: list[IssueTypeDelta] = []
 
 
 # --- Internal payloads --------------------------------------------------------
