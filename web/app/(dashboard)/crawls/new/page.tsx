@@ -33,7 +33,7 @@ export default function NewCrawlPage() {
         profile_id: profileId,
       }),
     onSuccess: (job) => {
-      router.push(`/crawls/${job.id}`);
+      router.push(`/crawls/${job.job_id}`);
     },
   });
 

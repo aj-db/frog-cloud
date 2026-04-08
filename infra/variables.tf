@@ -117,6 +117,17 @@ variable "worker_source_image" {
   type        = string
 }
 
+variable "gce_dispatch_mode" {
+  description = "How GCE jobs are dispatched: ephemeral per-job VMs or a persistent licensed worker."
+  type        = string
+  default     = "ephemeral"
+
+  validation {
+    condition     = contains(["ephemeral", "persistent"], var.gce_dispatch_mode)
+    error_message = "gce_dispatch_mode must be either \"ephemeral\" or \"persistent\"."
+  }
+}
+
 variable "cloud_run_min_instances" {
   description = "Minimum Cloud Run instances (0 allows scale-to-zero)."
   type        = number

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from app.auth import TenantDep
 from app.config import get_settings
 from app.db import get_db
 from app.models import CrawlJob, CrawlProfile, JobExecutor, JobStatus
+from app.request_urls import externalize_url
 from app.schemas import (
     CrawlJobCreate,
     CrawlJobCreateAccepted,
@@ -31,9 +32,25 @@ def _executor_for_request() -> JobExecutor:
     return JobExecutor(settings.executor_backend)
 
 
+def _dispatch_job(job_id: UUID, executor: JobExecutor, request: Request) -> None:
+    try:
+        enqueue_job_execution(
+            job_id,
+            executor,
+            launch_url=(
+                externalize_url(request.url_for("internal_launch_worker"), request.headers)
+                if executor == JobExecutor.gce
+                else None
+            ),
+        )
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
 @router.post("", response_model=CrawlJobCreateAccepted, status_code=status.HTTP_202_ACCEPTED)
 def create_crawl(
     body: CrawlJobCreate,
+    request: Request,
     tenant: TenantDep,
     db: Annotated[Session, Depends(get_db)],
 ) -> CrawlJobCreateAccepted:
@@ -68,14 +85,7 @@ def create_crawl(
     db.commit()
     db.refresh(job)
 
-    if executor == JobExecutor.gce:
-        # Cloud Tasks → /internal/launch-worker picks up queued GCE jobs.
-        pass
-    elif executor in (JobExecutor.local, JobExecutor.none):
-        try:
-            enqueue_job_execution(job.id, executor)
-        except ValueError as e:
-            raise HTTPException(status_code=503, detail=str(e)) from e
+    _dispatch_job(job.id, executor, request)
 
     return CrawlJobCreateAccepted(job_id=str(job.id), status="queued")
 
@@ -132,6 +142,7 @@ def get_crawl(
 @router.post("/{job_id}/retry", response_model=CrawlJobCreateAccepted, status_code=status.HTTP_202_ACCEPTED)
 def retry_crawl(
     job_id: UUID,
+    request: Request,
     tenant: TenantDep,
     db: Annotated[Session, Depends(get_db)],
 ) -> CrawlJobCreateAccepted:
@@ -156,8 +167,7 @@ def retry_crawl(
     db.commit()
     db.refresh(new_job)
 
-    if executor in (JobExecutor.local, JobExecutor.none):
-        enqueue_job_execution(new_job.id, executor)
+    _dispatch_job(new_job.id, executor, request)
 
     return CrawlJobCreateAccepted(job_id=str(new_job.id), status="queued")
 
@@ -165,6 +175,7 @@ def retry_crawl(
 @router.post("/{job_id}/duplicate", response_model=CrawlJobCreateAccepted, status_code=status.HTTP_202_ACCEPTED)
 def duplicate_crawl(
     job_id: UUID,
+    request: Request,
     tenant: TenantDep,
     db: Annotated[Session, Depends(get_db)],
 ) -> CrawlJobCreateAccepted:
@@ -187,7 +198,6 @@ def duplicate_crawl(
     db.commit()
     db.refresh(new_job)
 
-    if executor in (JobExecutor.local, JobExecutor.none):
-        enqueue_job_execution(new_job.id, executor)
+    _dispatch_job(new_job.id, executor, request)
 
     return CrawlJobCreateAccepted(job_id=str(new_job.id), status="queued")

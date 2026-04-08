@@ -24,8 +24,3 @@ variable "max_dispatches_per_second" {
   type    = number
   default = 50
 }
-
-variable "max_burst_size" {
-  type    = number
-  default = 20
-}

@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec > >(tee -a /var/log/frog-startup.log)
+exec 2>&1
+
+PROJECT_ID="${project_id}"
+DATABASE_URL_SECRET_ID="${database_url_secret_id}"
+SF_LICENSE_SECRET_ID="${sf_license_secret_id}"
+CLOUD_SQL_CONNECTION="${cloud_sql_connection}"
+GCS_BUCKET_NAME="${gcs_bucket}"
+FROG_HOME="/home/frogworker/.ScreamingFrogSEOSpider"
+WORKER_ENV_DIR="/etc/frog"
+WORKER_ENV_FILE="$WORKER_ENV_DIR/worker.env"
+
+echo "Starting Frog worker bootstrap"
+
+mkdir -p /var/log/frog /cloudsql "$FROG_HOME" "$FROG_HOME/db" "$WORKER_ENV_DIR"
+touch /var/log/frog/cloud-sql-proxy.log /var/log/frog/worker.log
+chown -R frogworker:frogworker /var/log/frog "$FROG_HOME"
+
+metadata_get() {
+  curl -fsSL -H "Metadata-Flavor: Google" \
+    "http://metadata.google.internal/computeMetadata/v1/$1"
+}
+
+access_token() {
+  metadata_get "instance/service-accounts/default/token" | python3 -c '
+import json, sys
+print(json.load(sys.stdin)["access_token"])
+'
+}
+
+secret_access() {
+  local secret_id="$1"
+  local token
+  token="$(access_token)"
+  curl -fsSL \
+    -H "Authorization: Bearer $${token}" \
+    "https://secretmanager.googleapis.com/v1/projects/$${PROJECT_ID}/secrets/$${secret_id}/versions/latest:access" | \
+    python3 -c '
+import base64, json, sys
+payload = json.load(sys.stdin)["payload"]["data"]
+sys.stdout.write(base64.b64decode(payload).decode("utf-8"))
+'
+}
+
+# Screaming Frog CLI can run headless if we pre-seed the licence file, accept the
+# EULA, and choose a storage mode before the first crawl.
+secret_access "$SF_LICENSE_SECRET_ID" > "$FROG_HOME/licence.txt"
+
+if [ ! -s "$FROG_HOME/licence.txt" ]; then
+  echo "Screaming Frog licence secret is empty"
+  exit 1
+fi
+
+cat > "$FROG_HOME/spider.config" <<'EOF'
+eula.accepted=15
+storage.mode=DB
+storage.db_dir=/home/frogworker/.ScreamingFrogSEOSpider/db
+EOF
+
+chown frogworker:frogworker "$FROG_HOME/licence.txt" "$FROG_HOME/spider.config"
+
+DATABASE_URL="$(secret_access "$DATABASE_URL_SECRET_ID")"
+
+if [ -z "$DATABASE_URL" ]; then
+  echo "DATABASE_URL secret is empty"
+  exit 1
+fi
+
+SF_CLI_PATH="$(command -v screamingfrogseospider || true)"
+if [ -z "$SF_CLI_PATH" ]; then
+  echo "Could not locate screamingfrogseospider on PATH"
+  exit 1
+fi
+
+JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
+GCE_DISPATCH_MODE="$(metadata_get "instance/attributes/gce_dispatch_mode" 2>/dev/null || true)"
+if [ -z "$GCE_DISPATCH_MODE" ]; then
+  GCE_DISPATCH_MODE="ephemeral"
+fi
+
+cat > "$WORKER_ENV_FILE" <<EOF
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+HOME=/home/frogworker
+DATABASE_URL=$DATABASE_URL
+GCS_BUCKET=$GCS_BUCKET_NAME
+SF_CLI_PATH=$SF_CLI_PATH
+JAVA_HOME=$JAVA_HOME
+PYTHONUNBUFFERED=1
+GCE_DISPATCH_MODE=$GCE_DISPATCH_MODE
+EOF
+chmod 0600 "$WORKER_ENV_FILE"
+
+cat > /etc/systemd/system/cloud-sql-proxy.service <<EOF
+[Unit]
+Description=Cloud SQL Auth Proxy for Frog worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloud-sql-proxy --private-ip --unix-socket /cloudsql $CLOUD_SQL_CONNECTION
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/frog/cloud-sql-proxy.log
+StandardError=append:/var/log/frog/cloud-sql-proxy.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat > /etc/systemd/system/frog-worker.service <<EOF
+[Unit]
+Description=Frog crawl worker
+After=network-online.target cloud-sql-proxy.service
+Requires=cloud-sql-proxy.service
+
+[Service]
+Type=simple
+User=frogworker
+WorkingDirectory=/opt/frog/app
+EnvironmentFile=$WORKER_ENV_FILE
+ExecStartPre=/bin/bash -lc 'for attempt in \$(seq 1 30); do [ -S "/cloudsql/$CLOUD_SQL_CONNECTION/.s.PGSQL.5432" ] && exit 0; sleep 2; done; echo "Cloud SQL proxy socket did not come up"; exit 1'
+ExecStart=/opt/frog/venv/bin/python -m crawler.worker
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/frog/worker.log
+StandardError=append:/var/log/frog/worker.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now cloud-sql-proxy.service frog-worker.service
+systemctl is-active --quiet cloud-sql-proxy.service
+systemctl is-active --quiet frog-worker.service

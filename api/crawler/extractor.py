@@ -19,6 +19,17 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE = 400
 
 
+def _load_crawl_artifact(artifact_path: Path, cli_path: str | None):
+    from screamingfrog import Crawl
+
+    load_kwargs: dict[str, Any] = {"cli_path": cli_path}
+    if artifact_path.suffix.lower() == ".seospider":
+        # Saved .seospider projects can be exported directly to CSV without relying
+        # on transient ProjectInstanceData directories surviving after the crawl exits.
+        load_kwargs.update(source_type="seospider", seospider_backend="csv")
+    return Crawl.load(str(artifact_path), **load_kwargs)
+
+
 def _norm_key(k: str) -> str:
     return k.strip().lower().replace("-", " ").replace("_", " ")
 
@@ -191,9 +202,7 @@ def extract_crawl_to_postgres(
     update_heartbeat(db, job_id)
 
     try:
-        from screamingfrog import Crawl
-
-        crawl = Crawl.load(str(artifact_path), cli_path=cli_path)
+        crawl = _load_crawl_artifact(artifact_path, cli_path)
     except Exception as e:
         logger.exception("Crawl.load failed")
         set_job_error(db, job_id, f"Failed to load crawl artifact: {e}")

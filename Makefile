@@ -1,13 +1,48 @@
-.PHONY: dev api-dev web-dev db-up db-down migrate seed lint test
+.PHONY: dev dev-local dev-side-by-side dev-status dev-stop dev-reset repo-hygiene api-dev web-dev web-dev-local web-dev-staging db-up db-down migrate seed lint test
 
 dev:
-	@make -j2 api-dev web-dev
+	@make -j2 api-dev web-dev-local
+
+dev-local:
+	@make -j2 api-dev web-dev-local
+
+dev-side-by-side:
+	@make -j3 api-dev web-dev-local web-dev-staging
 
 api-dev:
 	cd api && .venv/bin/python -m uvicorn app.main:app --reload --port 8000
 
-web-dev:
+web-dev: web-dev-local
+
+web-dev-local:
 	cd web && npm run dev
+
+web-dev-staging:
+	cd web && npm run dev:staging
+
+dev-status:
+	@python3 - <<'PY'
+	import socket
+	for port, label in ((8000, "api"), (3001, "web-local"), (3002, "web-staging")):
+	    s = socket.socket()
+	    s.settimeout(0.3)
+	    try:
+	        s.connect(("127.0.0.1", port))
+	        print(f"{label}: http://localhost:{port} (up)")
+	    except Exception:
+	        print(f"{label}: http://localhost:{port} (down)")
+	    finally:
+	        s.close()
+	PY
+
+dev-stop:
+	@python3 scripts/dev_cleanup.py
+
+dev-reset:
+	@python3 scripts/dev_cleanup.py --reset
+
+repo-hygiene:
+	@python3 scripts/dev_cleanup.py --git-gc
 
 db-up:
 	docker compose up -d postgres

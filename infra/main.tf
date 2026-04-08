@@ -33,6 +33,14 @@ locals {
   gcs_bucket_name = "${var.project_id}-frog-crawl-artifacts-${var.environment}"
 
   queue_id = "crawl-orchestration-${var.environment}"
+
+  worker_startup_script = templatefile("${path.module}/templates/worker-startup.sh.tftpl", {
+    project_id             = var.project_id
+    database_url_secret_id = google_secret_manager_secret.database_url.secret_id
+    sf_license_secret_id   = google_secret_manager_secret.sf_license_key.secret_id
+    cloud_sql_connection   = module.cloud_sql.instance_connection_name
+    gcs_bucket             = module.gcs.bucket_name
+  })
 }
 
 resource "google_service_account" "api" {
@@ -61,7 +69,6 @@ resource "google_project_service" "apis" {
     "compute.googleapis.com",
     "run.googleapis.com",
     "sqladmin.googleapis.com",
-    "cloudsql.googleapis.com",
     "servicenetworking.googleapis.com",
     "vpcaccess.googleapis.com",
     "cloudtasks.googleapis.com",
@@ -96,6 +103,15 @@ resource "google_compute_subnetwork" "primary" {
   private_ip_google_access = true
 }
 
+resource "google_compute_subnetwork" "serverless" {
+  name                     = "${var.environment}-frog-serverless-subnet"
+  project                  = var.project_id
+  ip_cidr_range            = "10.10.16.0/28"
+  region                   = var.region
+  network                  = google_compute_network.main.id
+  private_ip_google_access = true
+}
+
 resource "google_compute_global_address" "google_managed_services" {
   name          = "${var.environment}-frog-servicenetworking"
   project       = var.project_id
@@ -119,7 +135,7 @@ resource "google_vpc_access_connector" "serverless" {
   region  = var.region
 
   subnet {
-    name       = google_compute_subnetwork.primary.name
+    name       = google_compute_subnetwork.serverless.name
     project_id = var.project_id
   }
 
@@ -127,7 +143,7 @@ resource "google_vpc_access_connector" "serverless" {
   min_throughput = 200
   max_throughput = 300
 
-  depends_on = [google_compute_subnetwork.primary]
+  depends_on = [google_compute_subnetwork.serverless]
 }
 
 resource "google_artifact_registry_repository" "api" {
@@ -165,7 +181,7 @@ module "cloud_sql" {
   user_name           = var.db_user
   user_password       = var.db_password
   max_connections     = var.db_tier == "db-f1-micro" ? 25 : 100
-  shared_buffers_mb   = var.db_tier == "db-f1-micro" ? 64 : 256
+  shared_buffers_mb   = var.db_tier == "db-f1-micro" ? 128 : 256
   disk_size_gb        = 20
   deletion_protection = var.enable_deletion_protection
   labels              = local.common_labels
@@ -262,26 +278,30 @@ resource "google_secret_manager_secret_version" "sf_license_key" {
 module "cloud_run" {
   source = "./modules/cloud-run"
 
-  project_id                  = var.project_id
-  region                      = var.region
-  service_name                = "${var.environment}-frog-api"
-  container_image             = var.cloud_run_image
-  service_account_email       = local.api_sa_email
-  vpc_connector_id              = google_vpc_access_connector.serverless.id
-  cloud_sql_connection_name   = module.cloud_sql.instance_connection_name
-  min_instances               = var.cloud_run_min_instances
-  max_instances               = var.cloud_run_max_instances
-  allow_unauthenticated       = var.allow_unauthenticated_cloud_run
+  project_id                   = var.project_id
+  region                       = var.region
+  service_name                 = "${var.environment}-frog-api"
+  container_image              = var.cloud_run_image
+  service_account_email        = local.api_sa_email
+  vpc_connector_id             = google_vpc_access_connector.serverless.id
+  cloud_sql_connection_name    = module.cloud_sql.instance_connection_name
+  min_instances                = var.cloud_run_min_instances
+  max_instances                = var.cloud_run_max_instances
+  allow_unauthenticated        = var.allow_unauthenticated_cloud_run
   cloud_tasks_invoker_sa_email = local.cloud_tasks_oidc_sa_email
 
   env_plain = {
-    EXECUTOR_BACKEND       = "gce"
-    GCP_PROJECT_ID         = var.project_id
-    GCS_ARTIFACTS_BUCKET   = module.gcs.bucket_name
-    CLOUD_TASKS_QUEUE_ID   = local.queue_id
-    CLOUD_TASKS_LOCATION   = var.region
-    ENVIRONMENT            = var.environment
-    CLOUD_SQL_CONN_NAME    = module.cloud_sql.instance_connection_name
+    EXECUTOR_BACKEND                          = "gce"
+    GCE_DISPATCH_MODE                         = var.gce_dispatch_mode
+    GCP_PROJECT_ID                            = var.project_id
+    GCS_BUCKET                                = module.gcs.bucket_name
+    CLOUD_TASKS_QUEUE_ID                      = local.queue_id
+    CLOUD_TASKS_LOCATION                      = var.region
+    CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT_EMAIL = local.cloud_tasks_oidc_sa_email
+    ENVIRONMENT                               = var.environment
+    CLOUD_SQL_INSTANCE                        = module.cloud_sql.instance_connection_name
+    GCE_ZONE                                  = var.zone
+    GCE_INSTANCE_TEMPLATE                     = module.gce_image.instance_template_name
   }
 
   env_secrets = {
@@ -324,20 +344,73 @@ module "cloud_tasks" {
 module "gce_image" {
   source = "./modules/gce-image"
 
-  project_id              = var.project_id
-  environment             = var.environment
-  machine_type            = var.worker_machine_type
-  source_image            = var.worker_source_image
-  subnetwork_id           = google_compute_subnetwork.primary.id
-  service_account_email   = local.worker_sa_email
-  disk_size_gb            = 50
-  network_tags            = ["frog-worker", "https-server"]
-  startup_script          = <<-EOT
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Frog worker template: startup script placeholder. Provisioner should pass job metadata; worker entrypoint runs from image."
-  EOT
-  labels                  = local.common_labels
+  project_id            = var.project_id
+  environment           = var.environment
+  machine_type          = var.worker_machine_type
+  source_image          = var.worker_source_image
+  subnetwork_id         = google_compute_subnetwork.primary.id
+  service_account_email = local.worker_sa_email
+  disk_size_gb          = 50
+  network_tags          = ["frog-worker", "https-server"]
+  startup_script        = local.worker_startup_script
+  labels                = local.common_labels
+}
+
+resource "google_compute_instance" "persistent_worker" {
+  count        = var.gce_dispatch_mode == "persistent" ? 1 : 0
+  project      = var.project_id
+  zone         = var.zone
+  name         = "${var.environment}-frog-worker-persistent"
+  machine_type = var.worker_machine_type
+  labels       = local.common_labels
+
+  boot_disk {
+    auto_delete = true
+    initialize_params {
+      image = var.worker_source_image
+      size  = 50
+      type  = "pd-balanced"
+    }
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.primary.id
+    access_config {
+      # Persistent worker still needs outbound internet access for crawling.
+    }
+  }
+
+  service_account {
+    email  = local.worker_sa_email
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+
+  metadata = {
+    enable-oslogin    = "TRUE"
+    startup-script    = local.worker_startup_script
+    gce_dispatch_mode = "persistent"
+  }
+
+  tags = ["frog-worker", "https-server"]
+
+  scheduling {
+    automatic_restart   = true
+    on_host_maintenance = "MIGRATE"
+  }
+
+  allow_stopping_for_update = true
+
+  depends_on = [
+    module.cloud_sql,
+    module.gcs,
+    google_secret_manager_secret_version.database_url,
+    google_secret_manager_secret_version.sf_license_key,
+    google_secret_manager_secret_iam_member.worker_database_url,
+    google_secret_manager_secret_iam_member.worker_sf_license,
+    google_project_iam_member.worker_cloudsql_client,
+    google_project_iam_member.worker_compute_admin,
+    google_storage_bucket_iam_member.worker_artifacts_admin,
+  ]
 }
 
 # --- IAM: least-privilege bindings ---
@@ -358,6 +431,12 @@ resource "google_project_iam_member" "api_compute_admin" {
   project = var.project_id
   role    = "roles/compute.instanceAdmin.v1"
   member  = "serviceAccount:${local.api_sa_email}"
+}
+
+resource "google_project_iam_member" "worker_compute_admin" {
+  project = var.project_id
+  role    = "roles/compute.instanceAdmin.v1"
+  member  = "serviceAccount:${local.worker_sa_email}"
 }
 
 resource "google_service_account_iam_member" "api_uses_worker_sa" {

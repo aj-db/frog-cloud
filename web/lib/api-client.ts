@@ -1,6 +1,7 @@
 import createClient from "openapi-fetch";
 import type {
   CrawlIssueRow,
+  CrawlJobAccepted,
   CrawlJob,
   CrawlProfile,
   CreateCrawlInput,
@@ -26,7 +27,7 @@ export interface paths {
     post: {
       requestBody: { content: { "application/json": CreateCrawlInput } };
       responses: {
-        202: { content: { "application/json": CrawlJob } };
+        202: { content: { "application/json": CrawlJobAccepted } };
         400: { content: { "application/json": unknown } };
       };
     };
@@ -138,9 +139,11 @@ function getBaseUrl(): string {
   return url.replace(/\/$/, "");
 }
 
-function normalizeCrawlList(payload: CrawlJob[] | { crawls: CrawlJob[] }): CrawlJob[] {
+function normalizeCrawlList(
+  payload: CrawlJob[] | { crawls?: CrawlJob[]; items?: CrawlJob[] },
+): CrawlJob[] {
   if (Array.isArray(payload)) return payload;
-  return payload.crawls ?? [];
+  return payload.items ?? payload.crawls ?? [];
 }
 
 function normalizeProfiles(
@@ -205,7 +208,7 @@ export function createCrawlApi(getToken: GetToken) {
       if (error || !response.ok) {
         throw new ApiRequestError("Failed to load crawls", response.status, error);
       }
-      return normalizeCrawlList(data as CrawlJob[] | { crawls: CrawlJob[] });
+      return normalizeCrawlList(data as CrawlJob[] | { crawls?: CrawlJob[]; items?: CrawlJob[] });
     },
 
     getCrawl: async (jobId: string): Promise<CrawlJob> => {
@@ -219,7 +222,7 @@ export function createCrawlApi(getToken: GetToken) {
       return data as CrawlJob;
     },
 
-    createCrawl: async (body: CreateCrawlInput): Promise<CrawlJob> => {
+    createCrawl: async (body: CreateCrawlInput): Promise<CrawlJobAccepted> => {
       const { data, error, response } = await client.POST("/api/crawls", {
         body,
         headers: await headers(),
@@ -227,7 +230,7 @@ export function createCrawlApi(getToken: GetToken) {
       if (error || !response.ok || !data) {
         throw new ApiRequestError("Failed to create crawl", response.status, error ?? data);
       }
-      return data as CrawlJob;
+      return data as CrawlJobAccepted;
     },
 
     getCrawlPages: async (
@@ -401,7 +404,7 @@ export function createCrawlApi(getToken: GetToken) {
       return res.blob();
     },
 
-    retryCrawl: async (jobId: string): Promise<CrawlJob> => {
+    retryCrawl: async (jobId: string): Promise<CrawlJobAccepted> => {
       const token = await getToken();
       const res = await fetch(
         `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}/retry`,
@@ -423,10 +426,10 @@ export function createCrawlApi(getToken: GetToken) {
         }
         throw new ApiRequestError("Retry failed", res.status, body);
       }
-      return (await res.json()) as CrawlJob;
+      return (await res.json()) as CrawlJobAccepted;
     },
 
-    duplicateCrawl: async (jobId: string): Promise<CrawlJob> => {
+    duplicateCrawl: async (jobId: string): Promise<CrawlJobAccepted> => {
       const token = await getToken();
       const res = await fetch(
         `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}/duplicate`,
@@ -448,7 +451,7 @@ export function createCrawlApi(getToken: GetToken) {
         }
         throw new ApiRequestError("Duplicate failed", res.status, body);
       }
-      return (await res.json()) as CrawlJob;
+      return (await res.json()) as CrawlJobAccepted;
     },
   };
 }

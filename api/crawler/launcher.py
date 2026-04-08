@@ -53,6 +53,7 @@ def launch_worker_vm(db: Session, job_id: UUID) -> str:
             raise ValueError("Could not acquire queued -> provisioning lock")
 
     client = compute_v1.InstancesClient()
+    template_client = compute_v1.InstanceTemplatesClient()
     template_url = (
         f"projects/{settings.gcp_project_id}/global/instanceTemplates/"
         f"{settings.gce_instance_template}"
@@ -60,20 +61,35 @@ def launch_worker_vm(db: Session, job_id: UUID) -> str:
 
     instance_name = f"sf-worker-{str(job_id).replace('-', '')[:24]}"
 
+    template = template_client.get(
+        project=settings.gcp_project_id,
+        instance_template=settings.gce_instance_template,
+    )
+    template_metadata = getattr(getattr(template, "properties", None), "metadata", None)
+    metadata_by_key = {
+        item.key: item.value
+        for item in (getattr(template_metadata, "items", None) or [])
+        if getattr(item, "key", None)
+    }
+    metadata_by_key.update(
+        {
+            "frog_job_id": str(job_id),
+            "frog_tenant_id": str(job.tenant_id),
+        }
+    )
     metadata_items = [
-        compute_v1.Items(key="frog_job_id", value=str(job_id)),
-        compute_v1.Items(key="frog_tenant_id", value=str(job.tenant_id)),
+        compute_v1.Items(key=key, value=value) for key, value in metadata_by_key.items()
     ]
 
     body = compute_v1.Instance(
         name=instance_name,
-        source_instance_template=template_url,
         metadata=compute_v1.Metadata(items=metadata_items),
     )
 
     req = compute_v1.InsertInstanceRequest(
         project=settings.gcp_project_id,
         zone=settings.gce_zone,
+        source_instance_template=template_url,
         instance_resource=body,
     )
 

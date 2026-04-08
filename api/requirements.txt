@@ -13,4 +13,5 @@ pytest>=8.0.0
 google-auth>=2.0.0
 google-cloud-compute>=1.19.0
 google-cloud-storage>=2.18.0
+google-cloud-tasks>=2.16.0
 croniter>=2.0.0

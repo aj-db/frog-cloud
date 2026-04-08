@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.db import get_engine
 from app.models import CrawlJob, CrawlProfile, JobExecutor, JobStatus
+from crawler.cloud_tasks import enqueue_launch_worker_task
 from crawler.extractor import extract_crawl_to_postgres
 from crawler.progress import set_job_error, transition_job_status, update_heartbeat
 
@@ -61,21 +62,27 @@ def _run_local_job_impl(job_id: UUID) -> None:
             logger.info("Job %s not in queued state; skipping", job_id)
             return
 
-        env = os.environ.copy()
         if settings.java_home:
-            env["JAVA_HOME"] = settings.java_home
-            env["PATH"] = f"{settings.java_home}/bin:{env.get('PATH', '')}"
+            os.environ["JAVA_HOME"] = settings.java_home
+            os.environ["PATH"] = f"{settings.java_home}/bin:{os.environ.get('PATH', '')}"
+        if settings.sf_cli_path:
+            os.environ["SCREAMINGFROG_CLI"] = settings.sf_cli_path
 
         output_dir = Path(tempfile.mkdtemp(prefix=f"sf_job_{job_id}_"))
+        cli_path = settings.sf_cli_path
+        logger.info("Job %s: cli_path=%r, exists=%s, cwd=%s",
+                     job_id, cli_path, Path(cli_path).exists() if cli_path else "N/A", os.getcwd())
 
         try:
             from screamingfrog.cli.exports import start_crawl
 
+            config_path = profile.config_path if Path(profile.config_path).exists() else None
+            logger.info("Job %s: config_path=%r", job_id, config_path)
             start_crawl(
                 job.target_url,
                 output_dir,
-                cli_path=settings.sf_cli_path,
-                config=profile.config_path if Path(profile.config_path).exists() else None,
+                cli_path=cli_path,
+                config=config_path,
                 headless=True,
                 overwrite=True,
                 save_crawl=True,
@@ -175,13 +182,25 @@ def spawn_none_worker(job_id: UUID) -> None:
     p.start()
 
 
-def enqueue_job_execution(job_id: UUID, executor: JobExecutor) -> None:
+def enqueue_job_execution(
+    job_id: UUID,
+    executor: JobExecutor,
+    *,
+    launch_url: str | None = None,
+) -> str | None:
+    settings = get_settings()
     if executor == JobExecutor.local:
         spawn_local_worker(job_id)
+        return None
     elif executor == JobExecutor.none:
         spawn_none_worker(job_id)
+        return None
     elif executor == JobExecutor.gce:
-        # Cloud Tasks → /internal/launch-worker; API layer enqueues separately
-        raise ValueError("GCE executor must be scheduled via Cloud Tasks / launcher")
+        if settings.gce_dispatch_mode == "persistent":
+            logger.info("Leaving GCE job %s queued for persistent worker pickup", job_id)
+            return None
+        if not launch_url:
+            raise ValueError("GCE executor requires an internal launch URL")
+        return enqueue_launch_worker_task(job_id=job_id, launch_url=launch_url)
     else:
         raise ValueError(f"Unknown executor: {executor}")

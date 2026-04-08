@@ -27,6 +27,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origin_list(),
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type", "svix-id", "svix-timestamp", "svix-signature"],
@@ -41,6 +42,6 @@ app.include_router(schedules.router, prefix="/api")
 app.include_router(internal.router)
 
 
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
+@app.get("/health")
+def health() -> dict[str, str]:
     return {"status": "ok"}

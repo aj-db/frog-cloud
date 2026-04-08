@@ -13,7 +13,6 @@ resource "google_cloud_tasks_queue" "crawl_orchestration" {
 
   rate_limits {
     max_dispatches_per_second = var.max_dispatches_per_second
-    max_burst_size            = var.max_burst_size
   }
 
   stackdriver_logging_config {

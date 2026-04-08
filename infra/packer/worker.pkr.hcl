@@ -76,7 +76,7 @@ locals {
 source "googlecompute" "frog_worker" {
   project_id              = var.project_id
   source_image_family     = "ubuntu-2404-lts-amd64"
-  source_image_project_id = "ubuntu-os-cloud"
+  source_image_project_id = ["ubuntu-os-cloud"]
   zone                    = var.zone
   machine_type            = var.machine_type
   disk_size               = 50
@@ -102,24 +102,23 @@ build {
 
   provisioner "shell" {
     inline = [
-      "set -euo pipefail",
+      "set -eu",
       "export DEBIAN_FRONTEND=noninteractive",
       "sudo apt-get update",
       "sudo apt-get upgrade -y",
       "sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg lsb-release software-properties-common apt-transport-https",
       "sudo apt-get install -y --no-install-recommends openjdk-21-jre-headless",
+      "sudo apt-get install -y --no-install-recommends fontconfig fonts-dejavu-core fonts-dejavu-extra fonts-dejavu-mono libasound2t64 libatk1.0-0t64 libatspi2.0-0t64 libgbm1 libx11-xcb1 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxshmfence1 libxtst6",
       "sudo add-apt-repository -y ppa:deadsnakes/ppa",
       "sudo apt-get update",
       "sudo apt-get install -y --no-install-recommends python3.13 python3.13-venv python3.13-dev",
-      "sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1",
       "curl -fsSL https://bootstrap.pypa.io/get-pip.py | sudo python3.13",
-      "sudo apt-get install -y --no-install-recommends google-cloud-cli",
     ]
   }
 
   provisioner "shell" {
     inline = [
-      "set -euo pipefail",
+      "set -eu",
       "gsutil cp '${var.screaming_frog_deb_gs_uri}' /tmp/screamingfrog.deb",
       "sudo dpkg -i /tmp/screamingfrog.deb || sudo apt-get -f install -y",
       "rm -f /tmp/screamingfrog.deb",
@@ -128,7 +127,7 @@ build {
 
   provisioner "shell" {
     inline = [
-      "set -euo pipefail",
+      "set -eu",
       "sudo groupadd --system frogworker 2>/dev/null || true",
       "sudo useradd --system --gid frogworker --create-home --shell /bin/bash frogworker 2>/dev/null || true",
       "sudo mkdir -p /opt/frog/app /opt/frog/configs",
@@ -143,7 +142,7 @@ build {
 
   provisioner "shell" {
     inline = [
-      "set -euo pipefail",
+      "set -eu",
       "sudo rm -rf /opt/frog/app/*",
       "sudo cp -a /tmp/frog-api-src/. /opt/frog/app/",
       "sudo rm -rf /opt/frog/app/.venv /opt/frog/app/.mypy_cache 2>/dev/null || true",
@@ -158,9 +157,9 @@ build {
 
   provisioner "shell" {
     inline = [
-      "set -euo pipefail",
+      "set -eu",
       "VER=${var.cloud_sql_proxy_version}",
-      "curl -fsSL -o /tmp/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v${VER}/cloud-sql-proxy.linux.amd64",
+      "curl -fsSL -o /tmp/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v$${VER}/cloud-sql-proxy.linux.amd64",
       "sudo install -m 0755 /tmp/cloud-sql-proxy /usr/local/bin/cloud-sql-proxy",
       "rm -f /tmp/cloud-sql-proxy",
     ]
@@ -168,7 +167,7 @@ build {
 
   provisioner "shell" {
     inline = [
-      "set -euo pipefail",
+      "set -eu",
       "sudo apt-get autoremove -y",
       "sudo apt-get clean",
       "sudo rm -rf /var/lib/apt/lists/*",

@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname localhost --port 3001",
+    "dev:local": "next dev --hostname localhost --port 3001",
+    "dev:staging": "NEXT_PUBLIC_API_URL=https://staging-frog-api-i6yiz2xm6a-uc.a.run.app NEXT_DIST_DIR=.next-runs/staging-3002 NEXT_TS_CONFIG_PATH=tsconfig.next-staging.json next dev --hostname localhost --port 3002",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

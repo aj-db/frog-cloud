@@ -9,7 +9,31 @@ import type { CrawlJob } from "@/lib/api-types";
 import { jobIsActive, jobStatusLabel } from "@/lib/job-status";
 import { useCrawlApi } from "@/lib/use-crawl-api";
 
-type Snapshot = PollSnapshot & { stale: boolean };
+type Snapshot = PollSnapshot & {
+  stale: boolean;
+  worker_stale: boolean;
+  heartbeat_label: string | null;
+};
+const HEARTBEAT_STALE_MS = 45_000;
+
+function formatHeartbeatAge(
+  iso: string | null | undefined,
+  nowMs: number,
+): string | null {
+  if (!iso) return null;
+  const deltaMs = nowMs - new Date(iso).getTime();
+  if (!Number.isFinite(deltaMs) || deltaMs < 0) return null;
+
+  const seconds = Math.round(deltaMs / 1000);
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
 
 export function CrawlProgress({
   jobId,
@@ -31,13 +55,24 @@ export function CrawlProgress({
           status: job.status,
           progress_pct: job.progress_pct,
           error: job.error,
+          last_heartbeat_at: job.last_heartbeat_at,
         };
       },
       {
         intervalMs: 3500,
         staleAfterMs: 45_000,
         onUpdate: (s) => {
-          setSnapshot(s);
+          const nowMs = Date.now();
+          const heartbeatLabel = formatHeartbeatAge(s.last_heartbeat_at, nowMs);
+          const workerStale =
+            jobIsActive(s.status) &&
+            Boolean(s.last_heartbeat_at) &&
+            nowMs - new Date(s.last_heartbeat_at ?? 0).getTime() > HEARTBEAT_STALE_MS;
+          setSnapshot({
+            ...s,
+            worker_stale: workerStale,
+            heartbeat_label: heartbeatLabel,
+          });
           if (!s.stale) setPollError(false);
         },
         onPollError: () => setPollError(true),
@@ -84,11 +119,19 @@ export function CrawlProgress({
               onClick={() => {
                 setPollError(false);
                 void api.getCrawl(jobId).then((job) => {
+                  const nowMs = Date.now();
+                  const heartbeatLabel = formatHeartbeatAge(job.last_heartbeat_at, nowMs);
                   setSnapshot({
                     status: job.status,
                     progress_pct: job.progress_pct,
                     error: job.error,
+                    last_heartbeat_at: job.last_heartbeat_at,
                     stale: false,
+                    worker_stale:
+                      jobIsActive(job.status) &&
+                      Boolean(job.last_heartbeat_at) &&
+                      nowMs - new Date(job.last_heartbeat_at ?? 0).getTime() > HEARTBEAT_STALE_MS,
+                    heartbeat_label: heartbeatLabel,
                   });
                   onJobUpdate?.(job);
                 });
@@ -97,6 +140,13 @@ export function CrawlProgress({
               Refresh now
             </Button>
           </div>
+        </Alert>
+      )}
+
+      {snapshot?.worker_stale && !pollError && (
+        <Alert variant="warning" title="Worker heartbeat is stale">
+          The API is still reachable, but this crawl has not reported a worker heartbeat recently.
+          It may be stalled.
         </Alert>
       )}
 
@@ -125,6 +175,11 @@ export function CrawlProgress({
               {snapshot?.status === "queued" && "Job is queued and will start shortly."}
               {snapshot?.status === "provisioning" && "Provisioning worker resources…"}
             </p>
+            {active && snapshot?.heartbeat_label ? (
+              <p className="mt-1 font-mono text-[11px] text-[var(--muted)]">
+                Last worker heartbeat: {snapshot.heartbeat_label}
+              </p>
+            ) : null}
           </div>
         </div>
 

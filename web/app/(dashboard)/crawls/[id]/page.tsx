@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -32,7 +32,6 @@ export default function CrawlDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
   const api = useCrawlApi();
   const id = params.id;
 
@@ -82,16 +81,14 @@ export default function CrawlDetailPage() {
   const retryMutation = useMutation({
     mutationFn: () => api.retryCrawl(id),
     onSuccess: (j) => {
-      setJob(j);
-      void queryClient.invalidateQueries({ queryKey: ["crawl-issues", id] });
-      void queryClient.invalidateQueries({ queryKey: ["crawl-links", id] });
+      router.push(`/crawls/${j.job_id}`);
     },
   });
 
   const duplicateMutation = useMutation({
     mutationFn: () => api.duplicateCrawl(id),
     onSuccess: (j) => {
-      router.push(`/crawls/${j.id}`);
+      router.push(`/crawls/${j.job_id}`);
     },
   });
 

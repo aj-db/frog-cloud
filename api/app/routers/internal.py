@@ -6,7 +6,7 @@ import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.models import CrawlJob, JobExecutor, JobStatus, ScheduledCrawl
+from app.request_urls import externalize_url, request_url
 from app.schemas import LaunchWorkerPayload, ScheduleTriggerPayload
 from crawler.executor import enqueue_job_execution
 from crawler.launcher import launch_worker_vm
@@ -25,14 +26,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/internal", tags=["internal"])
 
 
-def verify_google_oidc(authorization: Annotated[str | None, Header()] = None) -> dict:
+def verify_google_oidc(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
     settings = get_settings()
-    audience = settings.internal_oidc_audience
-    if not audience:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="INTERNAL_OIDC_AUDIENCE is not configured",
-        )
+    audience = settings.internal_oidc_audience or request_url(request)
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
@@ -70,6 +69,7 @@ def internal_launch_worker(
 @router.post("/schedule-trigger")
 def internal_schedule_trigger(
     body: ScheduleTriggerPayload,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     _claims: Annotated[dict, Depends(verify_google_oidc)],
 ) -> dict[str, str]:
@@ -102,12 +102,17 @@ def internal_schedule_trigger(
     db.commit()
     db.refresh(job)
 
-    if executor == JobExecutor.gce:
-        logger.info("Schedule %s created GCE job %s (enqueue Cloud Task separately)", sid, job.id)
-    elif executor in (JobExecutor.local, JobExecutor.none):
-        try:
-            enqueue_job_execution(job.id, executor)
-        except ValueError as e:
-            raise HTTPException(status_code=503, detail=str(e)) from e
+    try:
+        enqueue_job_execution(
+            job.id,
+            executor,
+            launch_url=(
+                externalize_url(request.url_for("internal_launch_worker"), request.headers)
+                if executor == JobExecutor.gce
+                else None
+            ),
+        )
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
     return {"status": "ok", "job_id": str(job.id)}

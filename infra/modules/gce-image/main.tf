@@ -36,6 +36,7 @@ resource "google_compute_instance_template" "worker" {
   metadata = merge(
     {
       enable-oslogin = "TRUE"
+      gce_dispatch_mode = "ephemeral"
     },
     local.metadata_startup
   )

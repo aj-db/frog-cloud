@@ -34,6 +34,11 @@ export interface CrawlJob {
   avg_response_time_ms?: number | null;
 }
 
+export interface CrawlJobAccepted {
+  job_id: string;
+  status: JobStatus;
+}
+
 export interface CrawlPageRow {
   id: string;
   job_id: string;

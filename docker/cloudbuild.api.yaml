@@ -1,0 +1,18 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - docker/Dockerfile.api
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/frog-api/frog-api:${_IMAGE_TAG}
+      - .
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/frog-api/frog-api:${_IMAGE_TAG}
+
+substitutions:
+  _REGION: us-central1
+
+options:
+  logging: CLOUD_LOGGING_ONLY

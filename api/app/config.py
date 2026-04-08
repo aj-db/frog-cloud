@@ -5,10 +5,11 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ExecutorBackend = Literal["local", "none", "gce"]
+GceDispatchMode = Literal["ephemeral", "persistent"]
 
 
 class Settings(BaseSettings):
@@ -32,9 +33,28 @@ class Settings(BaseSettings):
         description="Comma-separated list of allowed browser origins.",
     )
     executor_backend: ExecutorBackend = Field(default="local", alias="EXECUTOR_BACKEND")
+    gce_dispatch_mode: GceDispatchMode = Field(
+        default="ephemeral",
+        alias="GCE_DISPATCH_MODE",
+    )
     gcp_project_id: str | None = Field(default=None, alias="GCP_PROJECT_ID")
-    gcs_bucket: str | None = Field(default=None, alias="GCS_BUCKET")
-    cloud_sql_instance: str | None = Field(default=None, alias="CLOUD_SQL_INSTANCE")
+    gcs_bucket: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GCS_BUCKET", "GCS_ARTIFACTS_BUCKET"),
+    )
+    cloud_sql_instance: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CLOUD_SQL_INSTANCE", "CLOUD_SQL_CONN_NAME"),
+    )
+    cloud_tasks_queue_id: str | None = Field(default=None, alias="CLOUD_TASKS_QUEUE_ID")
+    cloud_tasks_location: str | None = Field(default=None, alias="CLOUD_TASKS_LOCATION")
+    cloud_tasks_invoker_service_account_email: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT_EMAIL",
+            "CLOUD_TASKS_INVOKER_SA_EMAIL",
+        ),
+    )
     # GCE / internal control plane
     gce_zone: str | None = Field(default=None, alias="GCE_ZONE")
     gce_instance_template: str | None = Field(default=None, alias="GCE_INSTANCE_TEMPLATE")
