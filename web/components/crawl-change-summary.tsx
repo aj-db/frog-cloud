@@ -14,22 +14,103 @@ function formatDelta(current: number, previous: number): { value: string; positi
   return { value: `${sign}${diff} vs previous`, positive: diff <= 0 };
 }
 
-function StatusCodeBar({ label, current, previous }: { label: string; current: number; previous: number | null }) {
-  const diff = previous != null ? current - previous : null;
+const STATUS_COLORS: Record<string, string> = {
+  "2xx": "var(--green)",
+  "3xx": "var(--blue)",
+  "4xx": "var(--yellow)",
+  "5xx": "var(--red)",
+};
+
+interface DonutSlice {
+  label: string;
+  value: number;
+  prev: number | null;
+  color: string;
+}
+
+function StatusDonut({ slices, size = 120, stroke = 18 }: { slices: DonutSlice[]; size?: number; stroke?: number }) {
+  const [hovered, setHovered] = useState<string | null>(null);
+  const total = slices.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return null;
+
+  const r = (size - stroke) / 2;
+  const c = Math.PI * 2 * r;
+  let offset = 0;
+
   return (
-    <div className="flex items-center justify-between text-[12px]">
-      <span className="font-medium text-[var(--charcoal)]">{label}</span>
-      <span className="font-mono text-[var(--charcoal)]">
-        {current}
-        {diff != null && diff !== 0 ? (
-          <span
-            className="ml-1.5 text-[11px] font-semibold"
-            style={{ color: diff > 0 ? "var(--red)" : "var(--green)" }}
-          >
-            {diff > 0 ? `+${diff}` : diff}
-          </span>
-        ) : null}
-      </span>
+    <div className="flex items-center gap-6">
+      <div className="relative shrink-0" style={{ width: size, height: size }}>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+          {slices.map((s) => {
+            if (s.value === 0) return null;
+            const pct = s.value / total;
+            const dashLen = pct * c;
+            const gap = c - dashLen;
+            const o = offset;
+            offset += dashLen;
+            const isHovered = hovered === s.label;
+            return (
+              <circle
+                key={s.label}
+                cx={size / 2}
+                cy={size / 2}
+                r={r}
+                fill="none"
+                stroke={s.color}
+                strokeWidth={isHovered ? stroke + 4 : stroke}
+                strokeDasharray={`${dashLen} ${gap}`}
+                strokeDashoffset={-o}
+                className="transition-all duration-150"
+                style={{ opacity: hovered && !isHovered ? 0.35 : 1 }}
+                onMouseEnter={() => setHovered(s.label)}
+                onMouseLeave={() => setHovered(null)}
+              />
+            );
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          {hovered ? (
+            <>
+              <span className="font-soehne text-[18px] font-semibold leading-tight text-[var(--charcoal)]">
+                {slices.find((s) => s.label === hovered)?.value}
+              </span>
+              <span className="text-[10px] font-medium text-[var(--muted)]">{hovered}</span>
+            </>
+          ) : (
+            <>
+              <span className="font-soehne text-[18px] font-semibold leading-tight text-[var(--charcoal)]">{total}</span>
+              <span className="text-[10px] font-medium text-[var(--muted)]">total</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-1.5">
+        {slices.map((s) => {
+          const diff = s.prev != null ? s.value - s.prev : null;
+          return (
+            <div
+              key={s.label}
+              className="flex items-center gap-2 rounded px-1.5 py-0.5 transition-colors"
+              style={{ background: hovered === s.label ? "var(--light-grey)" : undefined }}
+              onMouseEnter={() => setHovered(s.label)}
+              onMouseLeave={() => setHovered(null)}
+            >
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
+              <span className="text-[12px] font-medium text-[var(--charcoal)]">{s.label}</span>
+              <span className="font-mono text-[12px] text-[var(--charcoal)]">{s.value}</span>
+              {diff != null && diff !== 0 ? (
+                <span
+                  className="font-mono text-[11px] font-semibold"
+                  style={{ color: diff > 0 ? "var(--red)" : "var(--green)" }}
+                >
+                  {diff > 0 ? `+${diff}` : diff}
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -80,12 +161,12 @@ function SummaryContent({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2 text-[12px] text-[var(--charcoal)]">
-        <span className="font-medium text-[var(--muted)]">Compared to</span>
+      <div className="flex items-center gap-2 text-[12px] text-[var(--charcoal)]">
+        <span className="shrink-0 font-medium text-[var(--muted)]">Compared to</span>
         <select
           value={compareJobId ?? ""}
           onChange={(e) => onCompareChange(e.target.value ? e.target.value : undefined)}
-          className="ds-select py-1 pl-2 pr-8 text-[12px] h-7 w-auto min-w-[180px]"
+          className="ds-select py-1 pl-2 pr-7 text-[12px] h-7 max-w-[260px]"
         >
           <option value="">previous crawl (auto)</option>
           {baselines.map((b) => (
@@ -97,7 +178,7 @@ function SummaryContent({
         {hasPrevious ? (
           <Link
             href={`/crawls/${previous.job_id}`}
-            className="text-[12px] font-medium text-[var(--muted)] hover:underline"
+            className="shrink-0 text-[12px] font-medium text-[var(--muted)] hover:underline"
           >
             View crawl
           </Link>
@@ -110,7 +191,7 @@ function SummaryContent({
         </p>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 grid-cols-2">
         <StatCard
           label="Pages crawled"
           value={current.urls_crawled}
@@ -203,19 +284,19 @@ function SummaryContent({
         )}
       </div>
 
-      {hasPrevious ? (
-        <div className="ds-card space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
-            Status code distribution
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <StatusCodeBar label="2xx" current={current.status_codes.status_2xx} previous={previous.status_codes.status_2xx} />
-            <StatusCodeBar label="3xx" current={current.status_codes.status_3xx} previous={previous.status_codes.status_3xx} />
-            <StatusCodeBar label="4xx" current={current.status_codes.status_4xx} previous={previous.status_codes.status_4xx} />
-            <StatusCodeBar label="5xx" current={current.status_codes.status_5xx} previous={previous.status_codes.status_5xx} />
-          </div>
-        </div>
-      ) : null}
+      <div className="ds-card space-y-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+          Status code distribution
+        </p>
+        <StatusDonut
+          slices={[
+            { label: "2xx", value: current.status_codes.status_2xx, prev: previous?.status_codes.status_2xx ?? null, color: STATUS_COLORS["2xx"] },
+            { label: "3xx", value: current.status_codes.status_3xx, prev: previous?.status_codes.status_3xx ?? null, color: STATUS_COLORS["3xx"] },
+            { label: "4xx", value: current.status_codes.status_4xx, prev: previous?.status_codes.status_4xx ?? null, color: STATUS_COLORS["4xx"] },
+            { label: "5xx", value: current.status_codes.status_5xx, prev: previous?.status_codes.status_5xx ?? null, color: STATUS_COLORS["5xx"] },
+          ]}
+        />
+      </div>
 
       {issueRows.length > 0 ? (
         <div className="ds-table-wrap">
@@ -300,7 +381,7 @@ export function CrawlChangeSummary({ jobId, targetUrl, enabled, activeIssueType 
   if (!query.data) return null;
 
   return (
-    <div className="col-span-full space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--border-faded)" }}>
         <p className="ds-section-label !mb-0">Crawl-to-crawl comparison</p>
       </div>

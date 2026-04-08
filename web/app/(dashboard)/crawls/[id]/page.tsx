@@ -306,17 +306,19 @@ export default function CrawlDetailPage() {
       ) : null}
 
       {showResultTables ? (
-        <div className="space-y-6">
-          <CrawlChangeSummary
-            jobId={id}
-            targetUrl={job.target_url}
-            enabled={job.status === "complete"}
-            activeIssueType={issueFilter?.issue_type ?? null}
-            onIssueSelect={(type) => {
-              setIssueFilter(type ? { issue_type: type } : null);
-              if (type) setTab("pages");
-            }}
-          />
+        <div className="grid items-start gap-6 lg:grid-cols-[360px_1fr]">
+          <div className="space-y-6 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+            <CrawlChangeSummary
+              jobId={id}
+              targetUrl={job.target_url}
+              enabled={job.status === "complete"}
+              activeIssueType={issueFilter?.issue_type ?? null}
+              onIssueSelect={(type) => {
+                setIssueFilter(type ? { issue_type: type } : null);
+                if (type) setTab("pages");
+              }}
+            />
+          </div>
 
           <div className="min-w-0 space-y-4">
             <div className="flex flex-wrap gap-1 border-b" style={{ borderColor: "var(--border-faded)" }}>
