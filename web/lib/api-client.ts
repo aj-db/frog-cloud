@@ -39,6 +39,12 @@ export interface paths {
         200: { content: { "application/json": CrawlJob } };
       };
     };
+    delete: {
+      parameters: { path: { job_id: string } };
+      responses: {
+        204: { content: never };
+      };
+    };
   };
   "/api/crawls/{job_id}/pages": {
     get: {
@@ -51,6 +57,17 @@ export interface paths {
       };
     };
   };
+  "/api/crawls/{job_id}/pages/export": {
+    get: {
+      parameters: {
+        path: { job_id: string };
+        query: Record<string, string | number | boolean | undefined>;
+      };
+      responses: {
+        200: { content: { "text/csv": string } };
+      };
+    };
+  };
   "/api/crawls/{job_id}/issues": {
     get: {
       parameters: {
@@ -59,6 +76,33 @@ export interface paths {
       };
       responses: {
         200: { content: { "application/json": CrawlIssueRow[] | { items: CrawlIssueRow[] } } };
+      };
+    };
+  };
+  "/api/crawls/{job_id}/summary": {
+    get: {
+      parameters: {
+        path: { job_id: string };
+        query?: { previous_job_id?: string };
+      };
+      responses: {
+        200: { content: { "application/json": CrawlComparisonSummary } };
+      };
+    };
+  };
+  "/api/crawls/{job_id}/retry": {
+    post: {
+      parameters: { path: { job_id: string } };
+      responses: {
+        202: { content: { "application/json": CrawlJobAccepted } };
+      };
+    };
+  };
+  "/api/crawls/{job_id}/duplicate": {
+    post: {
+      parameters: { path: { job_id: string } };
+      responses: {
+        202: { content: { "application/json": CrawlJobAccepted } };
       };
     };
   };
@@ -177,14 +221,6 @@ export function createCrawlApi(getToken: GetToken) {
     return h;
   }
 
-  async function parseError(res: Response): Promise<unknown> {
-    try {
-      return await res.json();
-    } catch {
-      return await res.text();
-    }
-  }
-
   return {
     getCrawls: async (query?: { target_url?: string; status?: string }): Promise<CrawlJob[]> => {
       const q: Record<string, string> = {};
@@ -257,17 +293,17 @@ export function createCrawlApi(getToken: GetToken) {
     },
 
     getCrawlSummary: async (jobId: string, previousJobId?: string): Promise<CrawlComparisonSummary> => {
-      const token = await getToken();
-      const query = previousJobId ? `?previous_job_id=${encodeURIComponent(previousJobId)}` : "";
-      const res = await fetch(
-        `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}/summary${query}`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-      );
-      if (!res.ok) {
-        const body = await parseError(res);
-        throw new ApiRequestError("Failed to load summary", res.status, body);
+      const { data, error, response } = await client.GET("/api/crawls/{job_id}/summary", {
+        params: {
+          path: { job_id: jobId },
+          query: previousJobId ? { previous_job_id: previousJobId } : undefined,
+        },
+        headers: await headers(),
+      });
+      if (error || !response.ok || !data) {
+        throw new ApiRequestError("Failed to load summary", response.status, error);
       }
-      return (await res.json()) as CrawlComparisonSummary;
+      return data;
     },
 
     getCrawlProfiles: async (): Promise<CrawlProfile[]> => {
@@ -366,86 +402,53 @@ export function createCrawlApi(getToken: GetToken) {
       jobId: string,
       params: PagesQueryParams = {},
     ): Promise<Blob> => {
-      const token = await getToken();
-      const qs = new URLSearchParams();
-      const q = buildPagesQuery(params);
-      Object.entries(q).forEach(([k, v]) => {
-        if (v !== undefined && v !== null) qs.set(k, String(v));
+      const { data, error, response } = await client.GET("/api/crawls/{job_id}/pages/export", {
+        params: {
+          path: { job_id: jobId },
+          query: {
+            format: "csv",
+            ...buildPagesQuery(params),
+          },
+        },
+        parseAs: "blob",
+        headers: await headers(),
       });
-      const url = `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}/pages/export?format=csv&${qs.toString()}`;
-      const res = await fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) {
-        const body = await parseError(res);
-        throw new ApiRequestError("Export failed", res.status, body);
+      if (error || !response.ok || !data) {
+        throw new ApiRequestError("Export failed", response.status, error);
       }
-      return res.blob();
+      return data;
     },
 
     retryCrawl: async (jobId: string): Promise<CrawlJobAccepted> => {
-      const token = await getToken();
-      const res = await fetch(
-        `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}/retry`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: "{}",
-        },
-      );
-      if (!res.ok) {
-        let body: unknown;
-        try {
-          body = await res.json();
-        } catch {
-          body = await res.text();
-        }
-        throw new ApiRequestError("Retry failed", res.status, body);
+      const { data, error, response } = await client.POST("/api/crawls/{job_id}/retry", {
+        params: { path: { job_id: jobId } },
+        headers: await headers(),
+      });
+      if (error || !response.ok || !data) {
+        throw new ApiRequestError("Retry failed", response.status, error);
       }
-      return (await res.json()) as CrawlJobAccepted;
+      return data;
     },
 
     deleteCrawl: async (jobId: string): Promise<void> => {
-      const token = await getToken();
-      const res = await fetch(
-        `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}`,
-        {
-          method: "DELETE",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        },
-      );
-      if (!res.ok) {
-        const body = await parseError(res);
-        throw new ApiRequestError("Delete failed", res.status, body);
+      const { error, response } = await client.DELETE("/api/crawls/{job_id}", {
+        params: { path: { job_id: jobId } },
+        headers: await headers(),
+      });
+      if (!response.ok) {
+        throw new ApiRequestError("Delete failed", response.status, error);
       }
     },
 
     duplicateCrawl: async (jobId: string): Promise<CrawlJobAccepted> => {
-      const token = await getToken();
-      const res = await fetch(
-        `${getBaseUrl()}/api/crawls/${encodeURIComponent(jobId)}/duplicate`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: "{}",
-        },
-      );
-      if (!res.ok) {
-        let body: unknown;
-        try {
-          body = await res.json();
-        } catch {
-          body = await res.text();
-        }
-        throw new ApiRequestError("Duplicate failed", res.status, body);
+      const { data, error, response } = await client.POST("/api/crawls/{job_id}/duplicate", {
+        params: { path: { job_id: jobId } },
+        headers: await headers(),
+      });
+      if (error || !response.ok || !data) {
+        throw new ApiRequestError("Duplicate failed", response.status, error);
       }
-      return (await res.json()) as CrawlJobAccepted;
+      return data;
     },
   };
 }
