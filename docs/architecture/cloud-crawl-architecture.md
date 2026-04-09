@@ -115,7 +115,7 @@ For the verified persistent path:
 2. The extractor reads the Screaming Frog output artifact.
 3. The extractor writes normalized data into:
    - `crawl_pages`
-   - `crawl_issues`
+   - `crawl_issues` (both Screaming Frog issue reports and derived `status_<code>` issue types)
    - `crawl_links`
 4. The job is marked `complete`.
 5. `urls_crawled` and other job fields are updated in PostgreSQL.
@@ -276,6 +276,7 @@ The `GET /api/crawls/{job_id}/summary` endpoint returns:
 
 - **Current and previous aggregates**: URLs crawled, average response time, total issue count
 - **Status-code distribution**: counts for 2xx, 3xx, 4xx, 5xx buckets in both crawls
+- **Exact status-code breakdown**: per-code page counts, including a bucket for URLs with no recorded status code
 - **Indexability distribution**: indexable vs non-indexable page counts
 - **Issue-type deltas**: newly introduced issue types, resolved issue types, and per-type count changes
 

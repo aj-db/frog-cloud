@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 400
 EXTRACTION_HEARTBEAT_INTERVAL_SECONDS = 15.0
+STATUS_ISSUE_PREFIX = "status_"
 
 
 def _load_crawl_artifact(artifact_path: Path, cli_path: str | None):
@@ -235,6 +236,33 @@ def _severity_for_issue(issue_text: str) -> IssueSeverity:
     return IssueSeverity.info
 
 
+def _status_issue_type(status_code: int) -> str:
+    return f"{STATUS_ISSUE_PREFIX}{status_code}"
+
+
+def _severity_for_status_code(status_code: int) -> IssueSeverity:
+    if 400 <= status_code < 600:
+        return IssueSeverity.error
+    if 300 <= status_code < 400:
+        return IssueSeverity.warning
+    return IssueSeverity.info
+
+
+def _status_issue_row(page_row: dict[str, Any]) -> dict[str, Any] | None:
+    status_code = page_row.get("status_code")
+    page_id = page_row.get("id")
+    if type(status_code) is not int or page_id is None:
+        return None
+    return {
+        "id": uuid.uuid4(),
+        "job_id": page_row["job_id"],
+        "page_id": page_id,
+        "issue_type": _status_issue_type(status_code),
+        "severity": _severity_for_status_code(status_code),
+        "details": f"HTTP {status_code} response recorded for this URL.",
+    }
+
+
 def extract_crawl_to_postgres(
     db: Session,
     *,
@@ -296,10 +324,11 @@ def extract_crawl_to_postgres(
 
     address_to_page_id: dict[str, uuid.UUID] = {}
     batch: list[dict[str, Any]] = []
+    status_issue_batch: list[dict[str, Any]] = []
     total = 0
 
     def flush_pages() -> None:
-        nonlocal batch, last_loading_heartbeat_at, total
+        nonlocal batch, last_loading_heartbeat_at, status_issue_batch, total
         if not batch:
             return
         db.bulk_insert_mappings(CrawlPage, batch)
@@ -308,6 +337,9 @@ def extract_crawl_to_postgres(
             addr = m["address"]
             if addr:
                 address_to_page_id[addr] = m["id"]
+            status_issue = _status_issue_row(m)
+            if status_issue is not None:
+                status_issue_batch.append(status_issue)
         total += len(batch)
         batch = []
         update_heartbeat(
@@ -350,7 +382,7 @@ def extract_crawl_to_postgres(
     last_loading_heartbeat_at = time.monotonic()
 
     # --- Issues from bundled reports ---------------------------------
-    issue_batch: list[dict[str, Any]] = []
+    issue_batch: list[dict[str, Any]] = list(status_issue_batch)
 
     def collect_issue_rows(method: str) -> None:
         nonlocal last_loading_heartbeat_at

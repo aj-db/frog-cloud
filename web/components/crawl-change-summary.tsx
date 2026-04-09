@@ -6,6 +6,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/badge";
 import { StatCard } from "@/components/stat-card";
 import type { CrawlComparisonSummary, CrawlJob } from "@/lib/api-types";
+import {
+  formatIssueTypeLabel,
+  formatStatusCodeLabel,
+  statusCodeFilterKey,
+} from "@/lib/issue-types";
 import { useCrawlApi } from "@/lib/use-crawl-api";
 
 function formatDelta(current: number, previous: number): { value: string; positive: boolean } {
@@ -125,14 +130,18 @@ function SummaryContent({
   compareJobId,
   onCompareChange,
   activeIssueType,
+  activeStatusFilter,
   onIssueSelect,
+  onStatusCodeSelect,
 }: {
   summary: CrawlComparisonSummary;
   baselines: CrawlJob[];
   compareJobId: string | undefined;
   onCompareChange: (id: string | undefined) => void;
   activeIssueType: string | null;
+  activeStatusFilter: string | null;
   onIssueSelect?: (issueType: string | null) => void;
+  onStatusCodeSelect?: (statusCode: number | null | undefined) => void;
 }) {
   const { current, previous } = summary;
   const hasPrevious = previous != null;
@@ -162,6 +171,35 @@ function SummaryContent({
     if (seen.has(d.issue_type)) continue;
     issueRows.push({ type: d.issue_type, prev: d.previous_count, curr: d.current_count, delta: d.delta, status: "changed" });
   }
+
+  const currentStatusCounts = new Map(
+    current.status_code_counts.map((item) => [statusCodeFilterKey(item.status_code), item.count]),
+  );
+  const previousStatusCounts = new Map(
+    (previous?.status_code_counts ?? []).map((item) => [statusCodeFilterKey(item.status_code), item.count]),
+  );
+  const statusCodeKeys = Array.from(
+    new Set([
+      ...current.status_code_counts.map((item) => statusCodeFilterKey(item.status_code)),
+      ...(previous?.status_code_counts ?? []).map((item) => statusCodeFilterKey(item.status_code)),
+    ]),
+  ).sort((left, right) => {
+    if (left === "__empty__") return 1;
+    if (right === "__empty__") return -1;
+    return Number(left) - Number(right);
+  });
+  const statusRows = statusCodeKeys.map((key) => {
+    const statusCode = key === "__empty__" ? null : Number(key);
+    const prev = hasPrevious ? (previousStatusCounts.get(key) ?? 0) : null;
+    const curr = currentStatusCounts.get(key) ?? 0;
+    return {
+      key,
+      statusCode,
+      prev,
+      curr,
+      delta: prev == null ? 0 : curr - prev,
+    };
+  });
 
   return (
     <div className="space-y-5">
@@ -300,6 +338,62 @@ function SummaryContent({
             { label: "5xx", value: current.status_codes.status_5xx, prev: previous?.status_codes.status_5xx ?? null, color: STATUS_COLORS["5xx"] },
           ]}
         />
+        {statusRows.length > 0 ? (
+          <div className="ds-table-wrap">
+            <table className="ds-table text-[12px]">
+              <thead>
+                <tr>
+                  <th className="text-left">Exact code</th>
+                  <th className="text-right w-[72px]">Previous</th>
+                  <th className="text-right w-[72px]">Current</th>
+                  <th className="text-right w-[72px]">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {statusRows.map((row) => (
+                  <tr
+                    key={row.key}
+                    className="cursor-pointer transition-colors hover:bg-[var(--light-grey)]"
+                    style={{ background: activeStatusFilter === row.key ? "var(--light-grey)" : undefined }}
+                    onClick={() =>
+                      onStatusCodeSelect?.(
+                        activeStatusFilter === row.key ? undefined : row.statusCode,
+                      )
+                    }
+                    title={`Filter pages by "${formatStatusCodeLabel(row.statusCode)}"`}
+                  >
+                    <td className="text-[var(--charcoal)]">
+                      {formatStatusCodeLabel(row.statusCode)}
+                    </td>
+                    <td className="text-right font-mono text-[var(--muted)]">
+                      {row.prev ?? "—"}
+                    </td>
+                    <td className="text-right font-mono">{row.curr}</td>
+                    <td
+                      className="text-right font-mono font-semibold"
+                      style={{
+                        color:
+                          row.delta > 0
+                            ? "var(--red)"
+                            : row.delta < 0
+                              ? "var(--green)"
+                              : "var(--muted)",
+                      }}
+                    >
+                      {row.prev == null
+                        ? "—"
+                        : row.delta > 0
+                          ? `+${row.delta}`
+                          : row.delta === 0
+                            ? "—"
+                            : row.delta}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </div>
 
       {issueRows.length > 0 ? (
@@ -321,9 +415,9 @@ function SummaryContent({
                   className="cursor-pointer transition-colors hover:bg-[var(--light-grey)]"
                   style={{ background: activeIssueType === r.type ? "var(--light-grey)" : undefined }}
                   onClick={() => onIssueSelect?.(activeIssueType === r.type ? null : r.type)}
-                  title={`Filter pages by "${r.type.replace(/_/g, " ")}"`}
+                  title={`Filter pages by "${formatIssueTypeLabel(r.type)}"`}
                 >
-                  <td className="text-[var(--charcoal)]">{r.type.replace(/_/g, " ")}</td>
+                  <td className="text-[var(--charcoal)]">{formatIssueTypeLabel(r.type)}</td>
                   <td className="text-right font-mono text-[var(--muted)]">{r.prev ?? "—"}</td>
                   <td className="text-right font-mono">{r.curr ?? "—"}</td>
                   <td className="text-right font-mono font-semibold" style={{ color: r.delta > 0 ? "var(--red)" : r.delta < 0 ? "var(--green)" : "var(--muted)" }}>
@@ -349,10 +443,20 @@ export interface CrawlChangeSummaryProps {
   targetUrl: string;
   enabled: boolean;
   activeIssueType?: string | null;
+  activeStatusFilter?: string | null;
   onIssueSelect?: (issueType: string | null) => void;
+  onStatusCodeSelect?: (statusCode: number | null | undefined) => void;
 }
 
-export function CrawlChangeSummary({ jobId, targetUrl, enabled, activeIssueType = null, onIssueSelect }: CrawlChangeSummaryProps) {
+export function CrawlChangeSummary({
+  jobId,
+  targetUrl,
+  enabled,
+  activeIssueType = null,
+  activeStatusFilter = null,
+  onIssueSelect,
+  onStatusCodeSelect,
+}: CrawlChangeSummaryProps) {
   const api = useCrawlApi();
   const [compareJobId, setCompareJobId] = useState<string | undefined>();
 
@@ -395,7 +499,9 @@ export function CrawlChangeSummary({ jobId, targetUrl, enabled, activeIssueType 
         compareJobId={compareJobId}
         onCompareChange={setCompareJobId}
         activeIssueType={activeIssueType}
+        activeStatusFilter={activeStatusFilter}
         onIssueSelect={onIssueSelect}
+        onStatusCodeSelect={onStatusCodeSelect}
       />
     </div>
   );

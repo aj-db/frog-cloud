@@ -298,6 +298,16 @@ class IssueTypeDelta(BaseModel):
     delta: int
 
 
+class IssueTypeCount(BaseModel):
+    issue_type: str
+    count: int
+
+
+class ExactStatusCodeCount(BaseModel):
+    status_code: int | None
+    count: int
+
+
 class CrawlSnapshotAggregates(BaseModel):
     job_id: str
     target_url: str
@@ -305,7 +315,9 @@ class CrawlSnapshotAggregates(BaseModel):
     urls_crawled: int
     avg_response_time_ms: float | None
     issues_count: int
+    issue_type_counts: list[IssueTypeCount] = Field(default_factory=list)
     status_codes: StatusCodeDistribution
+    status_code_counts: list[ExactStatusCodeCount] = Field(default_factory=list)
     indexability: IndexabilityDistribution
     sitemap_coverage: SitemapCoverage
 

@@ -1,4 +1,5 @@
 import type { CrawlJob, IssueTrendResponse } from "./api-types";
+import { parseStatusIssueCode } from "./issue-types";
 
 export interface IssuesTrendChartRow {
   jobId: string;
@@ -79,6 +80,7 @@ export function getDefaultIssueTypes(
   }
 
   return Array.from(totals.entries())
+    .filter(([issueType]) => parseStatusIssueCode(issueType) !== 200)
     .sort((left, right) => {
       if (right[1] !== left[1]) {
         return right[1] - left[1];

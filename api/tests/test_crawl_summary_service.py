@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
 from app.models import CrawlJob, JobExecutor, JobStatus
+from app.schemas import ExactStatusCodeCount, IssueTypeCount
 from app.services.crawl_summary import (
     _find_previous_job,
+    _issue_type_count_rows,
+    _status_code_counts,
     build_comparison_summary,
 )
 
@@ -72,7 +76,9 @@ def test_no_previous_crawl_returns_none_previous():
                 urls_crawled=job.urls_crawled,
                 avg_response_time_ms=42.5,
                 issues_count=3,
+                issue_type_counts=[IssueTypeCount(issue_type="status_200", count=2)],
                 status_codes=StatusCodeDistribution(),
+                status_code_counts=[ExactStatusCodeCount(status_code=200, count=2)],
                 indexability=IndexabilityDistribution(),
                 sitemap_coverage=SitemapCoverage(),
             )
@@ -83,6 +89,8 @@ def test_no_previous_crawl_returns_none_previous():
     assert summary.new_issue_types == []
     assert summary.resolved_issue_types == []
     assert summary.issue_type_deltas == []
+    assert summary.current.issue_type_counts[0].issue_type == "status_200"
+    assert summary.current.status_code_counts[0].status_code == 200
 
 
 def test_with_previous_crawl_computes_deltas():
@@ -118,7 +126,15 @@ def test_with_previous_crawl_computes_deltas():
         urls_crawled=100,
         avg_response_time_ms=150.0,
         issues_count=5,
+        issue_type_counts=[
+            IssueTypeCount(issue_type="missing_alt", count=3),
+            IssueTypeCount(issue_type="duplicate_title", count=2),
+        ],
         status_codes=StatusCodeDistribution(status_2xx=90, status_4xx=10),
+        status_code_counts=[
+            ExactStatusCodeCount(status_code=200, count=90),
+            ExactStatusCodeCount(status_code=404, count=10),
+        ],
         indexability=IndexabilityDistribution(indexable=85, non_indexable=15),
         sitemap_coverage=SitemapCoverage(in_sitemap=80, not_in_sitemap=20),
     )
@@ -129,23 +145,24 @@ def test_with_previous_crawl_computes_deltas():
         urls_crawled=80,
         avg_response_time_ms=200.0,
         issues_count=3,
+        issue_type_counts=[
+            IssueTypeCount(issue_type="missing_alt", count=5),
+            IssueTypeCount(issue_type="broken_link", count=1),
+        ],
         status_codes=StatusCodeDistribution(status_2xx=70, status_4xx=10),
+        status_code_counts=[
+            ExactStatusCodeCount(status_code=200, count=70),
+            ExactStatusCodeCount(status_code=404, count=10),
+        ],
         indexability=IndexabilityDistribution(indexable=65, non_indexable=15),
         sitemap_coverage=SitemapCoverage(in_sitemap=60, not_in_sitemap=20),
     )
-
-    cur_issues = {"missing_alt": 3, "duplicate_title": 2}
-    prev_issues = {"missing_alt": 5, "broken_link": 1}
 
     with (
         patch("app.services.crawl_summary._find_previous_job", return_value=prev_job),
         patch(
             "app.services.crawl_summary._build_aggregates",
             side_effect=[current_agg, prev_agg],
-        ),
-        patch(
-            "app.services.crawl_summary._issue_type_counts",
-            side_effect=[cur_issues, prev_issues],
         ),
     ):
         summary = build_comparison_summary(db, current_job)
@@ -179,3 +196,35 @@ def test_tenant_isolation_in_previous_job_query():
     stmt = call_args[0][0]
     compiled = str(stmt.compile(compile_kwargs={"literal_binds": False}))
     assert "tenant_id" in compiled
+
+
+def test_issue_type_count_rows_return_sorted_models():
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [
+        SimpleNamespace(issue_type="status_404", cnt=4),
+        SimpleNamespace(issue_type="missing_title", cnt=2),
+    ]
+
+    rows = _issue_type_count_rows(db, uuid.uuid4())
+
+    assert rows == [
+        IssueTypeCount(issue_type="status_404", count=4),
+        IssueTypeCount(issue_type="missing_title", count=2),
+    ]
+
+
+def test_status_code_counts_include_exact_codes_and_unknown_bucket():
+    db = MagicMock()
+    db.execute.return_value.all.return_value = [
+        SimpleNamespace(status_code=200, cnt=12),
+        SimpleNamespace(status_code=404, cnt=3),
+        SimpleNamespace(status_code=None, cnt=1),
+    ]
+
+    rows = _status_code_counts(db, uuid.uuid4())
+
+    assert rows == [
+        ExactStatusCodeCount(status_code=200, count=12),
+        ExactStatusCodeCount(status_code=404, count=3),
+        ExactStatusCodeCount(status_code=None, count=1),
+    ]

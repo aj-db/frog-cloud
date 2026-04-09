@@ -168,6 +168,16 @@ export interface IssueTypeDelta {
   delta: number;
 }
 
+export interface IssueTypeCount {
+  issue_type: string;
+  count: number;
+}
+
+export interface ExactStatusCodeCount {
+  status_code: number | null;
+  count: number;
+}
+
 export interface CrawlSnapshotAggregates {
   job_id: string;
   target_url: string;
@@ -175,7 +185,9 @@ export interface CrawlSnapshotAggregates {
   urls_crawled: number;
   avg_response_time_ms: number | null;
   issues_count: number;
+  issue_type_counts: IssueTypeCount[];
   status_codes: StatusCodeDistribution;
+  status_code_counts: ExactStatusCodeCount[];
   indexability: IndexabilityDistribution;
   sitemap_coverage: SitemapCoverage;
 }

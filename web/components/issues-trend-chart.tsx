@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { Alert } from "@/components/alert";
 import type { CrawlJob } from "@/lib/api-types";
+import { formatIssueTypeLabel } from "@/lib/issue-types";
 import {
   buildIssuesTrendSeries,
   getDefaultIssueTypes,
@@ -31,10 +32,6 @@ const LINE_COLORS = [
   "var(--red)",
   "var(--gray-600)",
 ];
-
-function formatIssueLabel(issueType: string): string {
-  return issueType.replace(/_/g, " ");
-}
 
 interface TrendTooltipProps {
   active?: boolean;
@@ -77,7 +74,7 @@ function TrendTooltip({ active, label, payload }: TrendTooltipProps) {
                 className="h-2.5 w-2.5 rounded-full"
                 style={{ background: item.color ?? "var(--charcoal)" }}
               />
-              <span>{formatIssueLabel(String(item.dataKey ?? ""))}</span>
+              <span>{formatIssueTypeLabel(String(item.dataKey ?? ""))}</span>
             </div>
             <span className="font-mono font-semibold text-[var(--charcoal)]">
               {item.value ?? 0}
@@ -122,13 +119,13 @@ function TrendLegend({ hiddenIssueTypes, onToggle, payload }: TrendLegendProps) 
               opacity: hidden ? 0.55 : 1,
             }}
             aria-pressed={!hidden}
-            aria-label={`${hidden ? "Show" : "Hide"} ${formatIssueLabel(issueType)} line`}
+            aria-label={`${hidden ? "Show" : "Hide"} ${formatIssueTypeLabel(issueType)} line`}
           >
             <span
               className="h-2.5 w-2.5 rounded-full"
               style={{ background: item.color ?? "var(--charcoal)" }}
             />
-            <span>{formatIssueLabel(issueType)}</span>
+            <span>{formatIssueTypeLabel(issueType)}</span>
           </button>
         );
       })}
@@ -262,7 +259,7 @@ export function IssuesTrendChart({ completedCrawls }: IssuesTrendChartProps) {
             <option value="">Select an issue type…</option>
             {remainingIssueTypes.map((issueType) => (
               <option key={issueType} value={issueType}>
-                {formatIssueLabel(issueType)}
+                {formatIssueTypeLabel(issueType)}
               </option>
             ))}
           </select>
@@ -288,14 +285,14 @@ export function IssuesTrendChart({ completedCrawls }: IssuesTrendChartProps) {
                 color: hidden ? "var(--muted)" : "var(--charcoal)",
                 background: hidden ? "var(--light-grey)" : "transparent",
               }}
-              aria-label={`Remove ${formatIssueLabel(issueType)} from the chart`}
+              aria-label={`Remove ${formatIssueTypeLabel(issueType)} from the chart`}
               title={hidden ? "Currently hidden in the legend" : "Remove from the chart"}
             >
               <span
                 className="h-2.5 w-2.5 rounded-full"
                 style={{ background: LINE_COLORS[index % LINE_COLORS.length] }}
               />
-              <span>{formatIssueLabel(issueType)}</span>
+              <span>{formatIssueTypeLabel(issueType)}</span>
               <span aria-hidden>×</span>
             </button>
           );
@@ -358,7 +355,7 @@ export function IssuesTrendChart({ completedCrawls }: IssuesTrendChartProps) {
                     key={issueType}
                     type="monotone"
                     dataKey={issueType}
-                    name={formatIssueLabel(issueType)}
+                    name={formatIssueTypeLabel(issueType)}
                     stroke={LINE_COLORS[index % LINE_COLORS.length]}
                     strokeWidth={2}
                     dot={{ r: 2 }}

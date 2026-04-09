@@ -83,4 +83,38 @@ describe("issues trend helpers", () => {
       "missing_meta_description",
     ]);
   });
+
+  it("does not auto-select status_200 but keeps other status series eligible", () => {
+    const trend: IssueTrendResponse = {
+      issue_types: ["status_200", "status_404", "missing_title"],
+      points: [
+        {
+          job_id: "job-1",
+          completed_at: "2026-04-08T00:00:00.000Z",
+          target_url: "https://example.com",
+          issue_type: "status_200",
+          url_count: 100,
+        },
+        {
+          job_id: "job-1",
+          completed_at: "2026-04-08T00:00:00.000Z",
+          target_url: "https://example.com",
+          issue_type: "status_404",
+          url_count: 7,
+        },
+        {
+          job_id: "job-1",
+          completed_at: "2026-04-08T00:00:00.000Z",
+          target_url: "https://example.com",
+          issue_type: "missing_title",
+          url_count: 5,
+        },
+      ],
+    };
+
+    expect(getDefaultIssueTypes(trend, 2)).toEqual([
+      "status_404",
+      "missing_title",
+    ]);
+  });
 });

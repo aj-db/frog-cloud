@@ -64,7 +64,16 @@ describe("createCrawlApi", () => {
         urls_crawled: 12,
         avg_response_time_ms: 123,
         issues_count: 4,
+        issue_type_counts: [
+          { issue_type: "missing_title", count: 3 },
+          { issue_type: "status_404", count: 1 },
+        ],
         status_codes: { status_2xx: 10, status_3xx: 1, status_4xx: 1, status_5xx: 0, other: 0 },
+        status_code_counts: [
+          { status_code: 200, count: 10 },
+          { status_code: 301, count: 1 },
+          { status_code: 404, count: 1 },
+        ],
         indexability: { indexable: 8, non_indexable: 4 },
         sitemap_coverage: { in_sitemap: 7, not_in_sitemap: 5, unknown: 0 },
       },

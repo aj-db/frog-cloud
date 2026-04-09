@@ -12,8 +12,9 @@ import { CrawlTable } from "@/components/crawl-table";
 import { CrawlChangeSummary } from "@/components/crawl-change-summary";
 import { CrawlStatusBadge } from "@/components/crawl-status-badge";
 import { JobErrorState } from "@/components/job-error-state";
-import type { CrawlJob } from "@/lib/api-types";
+import type { CrawlComparisonSummary, CrawlJob } from "@/lib/api-types";
 import { type FilterLogic, type FilterRule, createFilterRule } from "@/lib/filter-fields";
+import { statusCodeFilterKey } from "@/lib/issue-types";
 import { jobIsActive } from "@/lib/job-status";
 import { useCrawlApi } from "@/lib/use-crawl-api";
 
@@ -43,9 +44,9 @@ export default function CrawlDetailPage() {
     };
   }, [api, id]);
 
-  const issuesQuery = useQuery({
-    queryKey: ["crawl-issues", id],
-    queryFn: () => api.getCrawlIssues(id),
+  const summaryQuery = useQuery<CrawlComparisonSummary>({
+    queryKey: ["crawl-summary", id, undefined],
+    queryFn: () => api.getCrawlSummary(id),
     enabled: Boolean(id) && Boolean(job && (job.status === "complete" || job.status === "loading")),
   });
 
@@ -80,21 +81,29 @@ export default function CrawlDetailPage() {
     },
   });
 
-  const issueTypeList = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const i of issuesQuery.data ?? []) {
-      counts.set(i.issue_type, (counts.get(i.issue_type) ?? 0) + 1);
-    }
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([t]) => t);
-  }, [issuesQuery.data]);
+  const issueTypeList =
+    summaryQuery.data?.current.issue_type_counts.map((item) => item.issue_type) ?? [];
 
   const activeIssueType = useMemo(() => {
     const rule = filterRules.find(
       (r) => r.field === "issue_type" && r.op === "equals" && r.value,
     );
     return rule?.value ?? null;
+  }, [filterRules]);
+
+  const activeStatusFilter = useMemo(() => {
+    const rule = filterRules.find((r) => r.field === "status_code");
+    if (!rule) {
+      return null;
+    }
+    if (rule.op === "is_empty") {
+      return statusCodeFilterKey(null);
+    }
+    if (rule.op === "eq" && rule.value) {
+      const parsed = Number(rule.value);
+      return Number.isFinite(parsed) ? statusCodeFilterKey(parsed) : null;
+    }
+    return null;
   }, [filterRules]);
 
   const handleIssueSelect = useCallback(
@@ -125,6 +134,34 @@ export default function CrawlDetailPage() {
     },
     [],
   );
+
+  const handleStatusCodeSelect = useCallback((statusCode: number | null | undefined) => {
+    setFilterRules((prev) => {
+      const existing = prev.find((r) => r.field === "status_code");
+      if (statusCode === undefined) {
+        return existing ? prev.filter((r) => r.id !== existing.id) : prev;
+      }
+      const nextOp = statusCode == null ? "is_empty" : "eq";
+      const nextValue = statusCode == null ? "" : String(statusCode);
+
+      if (existing) {
+        const isSameRule =
+          existing.op === nextOp &&
+          (statusCode == null ? existing.op === "is_empty" : existing.value === nextValue);
+        if (isSameRule) {
+          return prev.filter((r) => r.id !== existing.id);
+        }
+        return prev.map((r) =>
+          r.id === existing.id ? { ...r, op: nextOp, value: nextValue } : r,
+        );
+      }
+
+      const rule = createFilterRule("status_code");
+      rule.op = nextOp;
+      rule.value = nextValue;
+      return [...prev, rule];
+    });
+  }, []);
 
   if (!job) {
     return (
@@ -213,7 +250,9 @@ export default function CrawlDetailPage() {
               targetUrl={job.target_url}
               enabled={job.status === "complete"}
               activeIssueType={activeIssueType}
+              activeStatusFilter={activeStatusFilter}
               onIssueSelect={handleIssueSelect}
+              onStatusCodeSelect={handleStatusCodeSelect}
             />
           </div>
 

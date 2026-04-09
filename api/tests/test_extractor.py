@@ -5,7 +5,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from uuid import uuid4
 
-from app.models import CrawlJob, JobExecutor, JobStatus
+from app.models import CrawlIssue, CrawlJob, IssueSeverity, JobExecutor, JobStatus
 from crawler import extractor
 
 
@@ -175,3 +175,52 @@ def test_extract_crawl_to_postgres_emits_heartbeats_during_page_loading(monkeypa
     assert any(
         urls_crawled == 2 and message == "Loading pages into the database…" for urls_crawled, message in heartbeats
     )
+
+
+def test_extract_crawl_to_postgres_derives_status_code_issues(monkeypatch, tmp_path):
+    job = CrawlJob(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        profile_id=uuid4(),
+        target_url="https://example.com",
+        executor=JobExecutor.gce,
+        status=JobStatus.running,
+    )
+    db = _FakeSession(job)
+    crawl = _FakeCrawl(
+        [
+            {"Address": "https://example.com/", "Status Code": "200"},
+            {"Address": "https://example.com/redirect", "Status Code": "301"},
+            {"Address": "https://example.com/missing", "Status Code": "404"},
+            {"Address": "https://example.com/error", "Status Code": "500"},
+            {"Address": "https://example.com/no-status"},
+        ]
+    )
+
+    monkeypatch.setattr(extractor, "_load_crawl_artifact", lambda *_args, **_kwargs: crawl)
+    monkeypatch.setattr(extractor, "set_job_error", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(extractor, "transition_job_status", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(extractor, "update_heartbeat", lambda *_args, **_kwargs: None)
+
+    extractor.extract_crawl_to_postgres(
+        db,
+        job_id=job.id,
+        tenant_id=job.tenant_id,
+        artifact_path=tmp_path / "crawl.seospider",
+        cli_path=None,
+    )
+
+    issue_rows = [
+        rows
+        for model, rows in db.bulk_insert_calls
+        if model is CrawlIssue
+    ]
+
+    assert len(issue_rows) == 1
+    issue_map = {row["issue_type"]: row for row in issue_rows[0]}
+    assert set(issue_map) == {"status_200", "status_301", "status_404", "status_500"}
+    assert issue_map["status_200"]["severity"] == IssueSeverity.info
+    assert issue_map["status_301"]["severity"] == IssueSeverity.warning
+    assert issue_map["status_404"]["severity"] == IssueSeverity.error
+    assert issue_map["status_500"]["severity"] == IssueSeverity.error
+    assert all(row["page_id"] is not None for row in issue_rows[0])

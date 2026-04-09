@@ -11,9 +11,11 @@ from app.models import CrawlIssue, CrawlJob, CrawlPage, JobStatus
 from app.schemas import (
     CrawlComparisonSummary,
     CrawlSnapshotAggregates,
+    ExactStatusCodeCount,
     IndexabilityDistribution,
     IssueTrendPoint,
     IssueTrendResponse,
+    IssueTypeCount,
     IssueTypeDelta,
     SitemapCoverage,
     StatusCodeDistribution,
@@ -66,6 +68,20 @@ def _status_code_distribution(db: Session, job_id: UUID) -> StatusCodeDistributi
     return dist
 
 
+def _status_code_counts(db: Session, job_id: UUID) -> list[ExactStatusCodeCount]:
+    null_rank = case((CrawlPage.status_code.is_(None), 1), else_=0)
+    rows = db.execute(
+        select(CrawlPage.status_code, func.count().label("cnt"))
+        .where(CrawlPage.job_id == job_id)
+        .group_by(CrawlPage.status_code)
+        .order_by(null_rank.asc(), CrawlPage.status_code.asc())
+    ).all()
+    return [
+        ExactStatusCodeCount(status_code=row.status_code, count=row.cnt)
+        for row in rows
+    ]
+
+
 def _indexability_distribution(db: Session, job_id: UUID) -> IndexabilityDistribution:
     rows = db.execute(
         select(CrawlPage.indexability, func.count().label("cnt"))
@@ -102,6 +118,16 @@ def _sitemap_coverage(db: Session, job_id: UUID) -> SitemapCoverage:
     return cov
 
 
+def _issue_type_count_rows(db: Session, job_id: UUID) -> list[IssueTypeCount]:
+    rows = db.execute(
+        select(CrawlIssue.issue_type, func.count().label("cnt"))
+        .where(CrawlIssue.job_id == job_id)
+        .group_by(CrawlIssue.issue_type)
+        .order_by(func.count().desc(), CrawlIssue.issue_type.asc())
+    ).all()
+    return [IssueTypeCount(issue_type=row.issue_type, count=row.cnt) for row in rows]
+
+
 def _build_aggregates(db: Session, job: CrawlJob) -> CrawlSnapshotAggregates:
     avg_rt = db.execute(
         select(func.avg(CrawlPage.response_time)).where(
@@ -109,7 +135,8 @@ def _build_aggregates(db: Session, job: CrawlJob) -> CrawlSnapshotAggregates:
         )
     ).scalar_one()
 
-    issues_count = db.execute(select(func.count(CrawlIssue.id)).where(CrawlIssue.job_id == job.id)).scalar_one()
+    issue_type_counts = _issue_type_count_rows(db, job.id)
+    issues_count = sum(item.count for item in issue_type_counts)
 
     return CrawlSnapshotAggregates(
         job_id=str(job.id),
@@ -118,19 +145,16 @@ def _build_aggregates(db: Session, job: CrawlJob) -> CrawlSnapshotAggregates:
         urls_crawled=job.urls_crawled,
         avg_response_time_ms=round(avg_rt, 1) if avg_rt is not None else None,
         issues_count=issues_count,
+        issue_type_counts=issue_type_counts,
         status_codes=_status_code_distribution(db, job.id),
+        status_code_counts=_status_code_counts(db, job.id),
         indexability=_indexability_distribution(db, job.id),
         sitemap_coverage=_sitemap_coverage(db, job.id),
     )
 
 
-def _issue_type_counts(db: Session, job_id: UUID) -> dict[str, int]:
-    rows = db.execute(
-        select(CrawlIssue.issue_type, func.count().label("cnt"))
-        .where(CrawlIssue.job_id == job_id)
-        .group_by(CrawlIssue.issue_type)
-    ).all()
-    return {r.issue_type: r.cnt for r in rows}
+def _issue_type_counts(items: list[IssueTypeCount]) -> dict[str, int]:
+    return {item.issue_type: item.count for item in items}
 
 
 def build_issues_trend(db: Session, tenant_id: UUID) -> IssueTrendResponse:
@@ -204,8 +228,8 @@ def build_comparison_summary(
 
     prev_agg = _build_aggregates(db, prev_job)
 
-    cur_issues = _issue_type_counts(db, job.id)
-    prev_issues = _issue_type_counts(db, prev_job.id)
+    cur_issues = _issue_type_counts(current_agg.issue_type_counts)
+    prev_issues = _issue_type_counts(prev_agg.issue_type_counts)
 
     all_types = sorted(set(cur_issues) | set(prev_issues))
     new_types = [t for t in all_types if t in cur_issues and t not in prev_issues]
