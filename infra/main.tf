@@ -433,6 +433,18 @@ resource "google_project_iam_member" "api_compute_admin" {
   member  = "serviceAccount:${local.api_sa_email}"
 }
 
+resource "google_project_iam_member" "api_run_admin" {
+  project = var.project_id
+  role    = "roles/run.admin"
+  member  = "serviceAccount:${local.api_sa_email}"
+}
+
+resource "google_project_iam_member" "api_artifact_registry_writer" {
+  project = var.project_id
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${local.api_sa_email}"
+}
+
 resource "google_project_iam_member" "worker_compute_admin" {
   project = var.project_id
   role    = "roles/compute.instanceAdmin.v1"
@@ -447,6 +459,12 @@ resource "google_service_account_iam_member" "api_uses_worker_sa" {
 
 resource "google_service_account_iam_member" "api_act_as_tasks_oidc" {
   service_account_id = "projects/${var.project_id}/serviceAccounts/${local.cloud_tasks_oidc_sa_email}"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${local.api_sa_email}"
+}
+
+resource "google_service_account_iam_member" "api_act_as_self" {
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${local.api_sa_email}"
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${local.api_sa_email}"
 }

@@ -96,6 +96,7 @@ jobs:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       CLOUD_RUN_SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE_NAME }}
       DB_SECRET: ${{ secrets.GCP_DATABASE_URL_SECRET_ID }}
+      DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -118,15 +119,29 @@ jobs:
           docker push "${IMAGE}"
           echo "IMAGE_URI=${IMAGE}" >> "${GITHUB_ENV}"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Alembic migrate (staging)
+      - name: Run migrations (staging)
         run: |
-          pip install "alembic>=1.14" "sqlalchemy>=2" "psycopg2-binary>=2.9"
-          export DATABASE_URL="$(gcloud secrets versions access latest --secret="${DB_SECRET}" --project="${GCP_PROJECT_ID}")"
-          cd api && alembic upgrade head
+          DEPLOY_PREFIX="${CLOUD_RUN_SERVICE_NAME%-api}"
+          MIGRATION_JOB_NAME="${CLOUD_RUN_SERVICE_NAME}-migrate"
+          CLOUD_SQL_INSTANCE="${GCP_PROJECT_ID}:${GCP_REGION}:${DEPLOY_PREFIX}-pg"
+          VPC_CONNECTOR="${DEPLOY_PREFIX}-serverless"
+
+          gcloud run jobs deploy "${MIGRATION_JOB_NAME}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_URI}" \
+            --service-account="${DEPLOY_SERVICE_ACCOUNT}" \
+            --vpc-connector="${VPC_CONNECTOR}" \
+            --vpc-egress=private-ranges-only \
+            --set-cloudsql-instances="${CLOUD_SQL_INSTANCE}" \
+            --set-secrets="DATABASE_URL=${DB_SECRET}:latest" \
+            --command=python \
+            --args=-m,alembic,upgrade,head \
+            --max-retries=0 \
+            --task-timeout=10m \
+            --tasks=1 \
+            --execute-now \
+            --wait
 
       - name: Deploy to Cloud Run (staging)
         run: |
@@ -148,6 +163,7 @@ jobs:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       CLOUD_RUN_SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE_NAME }}
       DB_SECRET: ${{ secrets.GCP_DATABASE_URL_SECRET_ID }}
+      DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -170,15 +186,29 @@ jobs:
           docker push "${IMAGE}"
           echo "IMAGE_URI=${IMAGE}" >> "${GITHUB_ENV}"
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Alembic migrate (production)
+      - name: Run migrations (production)
         run: |
-          pip install "alembic>=1.14" "sqlalchemy>=2" "psycopg2-binary>=2.9"
-          export DATABASE_URL="$(gcloud secrets versions access latest --secret="${DB_SECRET}" --project="${GCP_PROJECT_ID}")"
-          cd api && alembic upgrade head
+          DEPLOY_PREFIX="${CLOUD_RUN_SERVICE_NAME%-api}"
+          MIGRATION_JOB_NAME="${CLOUD_RUN_SERVICE_NAME}-migrate"
+          CLOUD_SQL_INSTANCE="${GCP_PROJECT_ID}:${GCP_REGION}:${DEPLOY_PREFIX}-pg"
+          VPC_CONNECTOR="${DEPLOY_PREFIX}-serverless"
+
+          gcloud run jobs deploy "${MIGRATION_JOB_NAME}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_URI}" \
+            --service-account="${DEPLOY_SERVICE_ACCOUNT}" \
+            --vpc-connector="${VPC_CONNECTOR}" \
+            --vpc-egress=private-ranges-only \
+            --set-cloudsql-instances="${CLOUD_SQL_INSTANCE}" \
+            --set-secrets="DATABASE_URL=${DB_SECRET}:latest" \
+            --command=python \
+            --args=-m,alembic,upgrade,head \
+            --max-retries=0 \
+            --task-timeout=10m \
+            --tasks=1 \
+            --execute-now \
+            --wait
 
       - name: Deploy to Cloud Run (production)
         run: |
