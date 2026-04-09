@@ -8,7 +8,6 @@ import type {
   CreateCrawlInput,
   CreateProfileInput,
   CreateScheduleInput,
-  PaginatedLinks,
   PaginatedPages,
   PagesQueryParams,
   ScheduledCrawl,
@@ -60,17 +59,6 @@ export interface paths {
       };
       responses: {
         200: { content: { "application/json": CrawlIssueRow[] | { items: CrawlIssueRow[] } } };
-      };
-    };
-  };
-  "/api/crawls/{job_id}/links": {
-    get: {
-      parameters: {
-        path: { job_id: string };
-        query: Record<string, string | number | undefined>;
-      };
-      responses: {
-        200: { content: { "application/json": PaginatedLinks } };
       };
     };
   };
@@ -266,31 +254,6 @@ export function createCrawlApi(getToken: GetToken) {
         throw new ApiRequestError("Failed to load issues", response.status, error);
       }
       return normalizeIssues(data as CrawlIssueRow[] | { items: CrawlIssueRow[] });
-    },
-
-    getCrawlLinks: async (
-      jobId: string,
-      query: { cursor?: string; limit?: number } = {},
-    ): Promise<PaginatedLinks> => {
-      const { data, error, response } = await client.GET("/api/crawls/{job_id}/links", {
-        params: {
-          path: { job_id: jobId },
-          query: {
-            cursor: query.cursor,
-            limit: query.limit,
-          } as Record<string, string | number | undefined>,
-        },
-        headers: await headers(),
-      });
-      if (error || !response.ok || !data) {
-        throw new ApiRequestError("Failed to load links", response.status, error);
-      }
-      const d = data as PaginatedLinks;
-      return {
-        items: d.items ?? [],
-        next_cursor: d.next_cursor ?? null,
-        total_count: d.total_count ?? d.items?.length ?? 0,
-      };
     },
 
     getCrawlSummary: async (jobId: string, previousJobId?: string): Promise<CrawlComparisonSummary> => {

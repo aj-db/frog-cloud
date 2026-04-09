@@ -85,22 +85,6 @@ export interface CrawlIssueRow {
   details: string | null;
 }
 
-export interface CrawlLinkRow {
-  id: string;
-  job_id: string;
-  source_url: string;
-  target_url: string;
-  link_type: string | null;
-  anchor_text: string | null;
-  status_code: number | null;
-}
-
-export interface PaginatedLinks {
-  items: CrawlLinkRow[];
-  next_cursor: string | null;
-  total_count: number;
-}
-
 export interface ScheduledCrawl {
   id: string;
   tenant_id?: string;
