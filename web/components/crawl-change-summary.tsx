@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/badge";
 import { StatCard } from "@/components/stat-card";
-import type { CrawlComparisonSummary, CrawlJob, CrawlSnapshotAggregates } from "@/lib/api-types";
+import type { CrawlComparisonSummary, CrawlJob } from "@/lib/api-types";
 import { useCrawlApi } from "@/lib/use-crawl-api";
 
 function formatDelta(current: number, previous: number): { value: string; positive: boolean } {

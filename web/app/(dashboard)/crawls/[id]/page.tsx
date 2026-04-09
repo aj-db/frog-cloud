@@ -137,8 +137,6 @@ export default function CrawlDetailPage() {
 
   const partialData = job.status === "loading";
   const showResultTables = job.status === "complete" || partialData;
-  const showStats =
-    job.status !== "failed" && job.status !== "cancelled";
   const active = jobIsActive(job.status);
 
   return (

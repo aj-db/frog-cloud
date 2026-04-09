@@ -10,18 +10,20 @@ import os
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
-
-from app.auth import get_current_tenant
-from app.db import get_db
-from app.main import app
-from app.models import Tenant
 
 
 DB_URL = os.environ.get("DATABASE_URL")
 needs_pg = pytest.mark.skipif(not DB_URL, reason="DATABASE_URL not set")
+
+if DB_URL:
+    from fastapi.testclient import TestClient
+
+    from app.auth import get_current_tenant
+    from app.db import get_db
+    from app.main import app
+    from app.models import Tenant
 
 
 @pytest.fixture()
