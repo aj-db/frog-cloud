@@ -28,6 +28,16 @@ from app.services.crawl_summary import build_comparison_summary
 
 router = APIRouter(tags=["results"])
 
+
+def _job_for_tenant(db: Session, tenant_id: UUID, job_id: UUID) -> CrawlJob:
+    row = db.execute(
+        select(CrawlJob).where(and_(CrawlJob.id == job_id, CrawlJob.tenant_id == tenant_id))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Crawl job not found")
+    return row
+
+
 SORT_FIELDS = frozenset({"address", "status_code", "word_count", "response_time", "crawl_depth"})
 
 # ---------------------------------------------------------------------------
