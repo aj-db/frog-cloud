@@ -312,6 +312,15 @@ class CrawlComparisonSummary(BaseModel):
     issue_type_deltas: list[IssueTypeDelta] = []
 
 
+# --- Page filter rules --------------------------------------------------------
+
+
+class PageFilterRule(BaseModel):
+    field: str
+    op: str
+    value: str = ""
+
+
 # --- Internal payloads --------------------------------------------------------
 
 class LaunchWorkerPayload(BaseModel):

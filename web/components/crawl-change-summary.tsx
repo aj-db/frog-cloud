@@ -166,7 +166,7 @@ function SummaryContent({
         <select
           value={compareJobId ?? ""}
           onChange={(e) => onCompareChange(e.target.value ? e.target.value : undefined)}
-          className="ds-select py-1 pl-2 pr-7 text-[12px] h-7 max-w-[260px]"
+          className="ds-select py-1.5 pl-2 pr-7 text-[12px] max-w-[260px]"
         >
           <option value="">previous crawl (auto)</option>
           {baselines.map((b) => (

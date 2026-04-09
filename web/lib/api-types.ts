@@ -152,14 +152,8 @@ export interface PagesQueryParams {
   limit?: number;
   sort?: "address" | "status_code" | "word_count" | "response_time" | "crawl_depth";
   dir?: "asc" | "desc";
-  status_code?: string;
-  indexability?: string;
-  content_type?: string;
-  in_sitemap?: boolean;
-  search?: string;
-  has_issues?: boolean;
-  issue_type?: string;
-  severity?: IssueSeverity;
+  filters?: string;
+  filter_logic?: "and" | "or";
 }
 
 // --- Cross-crawl comparison summary ------------------------------------------

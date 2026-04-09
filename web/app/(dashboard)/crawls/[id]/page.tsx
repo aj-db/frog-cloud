@@ -2,14 +2,8 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
 import { Alert } from "@/components/alert";
 import { Button } from "@/components/button";
 import { CrawlProgress } from "@/components/crawl-progress";
@@ -17,49 +11,27 @@ import type { CrawlTableQuerySnapshot } from "@/components/crawl-table";
 import { CrawlTable } from "@/components/crawl-table";
 import { CrawlChangeSummary } from "@/components/crawl-change-summary";
 import { CrawlStatusBadge } from "@/components/crawl-status-badge";
-import type { IssueFilter } from "@/components/issue-summary";
 import { JobErrorState } from "@/components/job-error-state";
-import type { CrawlIssueRow, CrawlJob, CrawlLinkRow } from "@/lib/api-types";
+import type { CrawlJob } from "@/lib/api-types";
+import { type FilterLogic, type FilterRule, createFilterRule } from "@/lib/filter-fields";
 import { jobIsActive } from "@/lib/job-status";
 import { useCrawlApi } from "@/lib/use-crawl-api";
-
-type Tab = "pages" | "issues" | "links";
-
-const issueColumnHelper = createColumnHelper<CrawlIssueRow>();
-const linkColumnHelper = createColumnHelper<CrawlLinkRow>();
 
 export default function CrawlDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const api = useCrawlApi();
   const id = params.id;
 
-  const tabParam = searchParams.get("tab") as Tab | null;
-  const tab: Tab =
-    tabParam === "issues" || tabParam === "links" || tabParam === "pages"
-      ? tabParam
-      : "pages";
-
-  const setTab = useCallback(
-    (next: Tab) => {
-      const p = new URLSearchParams(searchParams.toString());
-      p.set("tab", next);
-      router.replace(`?${p.toString()}`, { scroll: false });
-    },
-    [router, searchParams],
-  );
-
   const [job, setJob] = useState<CrawlJob | null>(null);
-  const [issueFilter, setIssueFilter] = useState<IssueFilter | null>(null);
+  const [filterRules, setFilterRules] = useState<FilterRule[]>([]);
+  const [filterLogic, setFilterLogic] = useState<FilterLogic>("and");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteCrawl(id),
     onSuccess: () => router.push("/crawls"),
   });
   const [exportSnapshot, setExportSnapshot] = useState<CrawlTableQuerySnapshot | null>(null);
-  const [linksCursor, setLinksCursor] = useState<string | null>(null);
-  const [linksStack, setLinksStack] = useState<(string | null)[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,12 +47,6 @@ export default function CrawlDetailPage() {
     queryKey: ["crawl-issues", id],
     queryFn: () => api.getCrawlIssues(id),
     enabled: Boolean(id) && Boolean(job && (job.status === "complete" || job.status === "loading")),
-  });
-
-  const linksQuery = useQuery({
-    queryKey: ["crawl-links", id, linksCursor],
-    queryFn: () => api.getCrawlLinks(id, { cursor: linksCursor ?? undefined, limit: 100 }),
-    enabled: Boolean(id) && tab === "links" && Boolean(job && job.status === "complete"),
   });
 
   const retryMutation = useMutation({
@@ -114,19 +80,6 @@ export default function CrawlDetailPage() {
     },
   });
 
-  const issueStats = useMemo(() => {
-    const list = issuesQuery.data ?? [];
-    let err = 0;
-    let warn = 0;
-    let info = 0;
-    for (const i of list) {
-      if (i.severity === "error") err += 1;
-      else if (i.severity === "warning") warn += 1;
-      else info += 1;
-    }
-    return { err, warn, info, total: list.length };
-  }, [issuesQuery.data]);
-
   const issueTypeList = useMemo(() => {
     const counts = new Map<string, number>();
     for (const i of issuesQuery.data ?? []) {
@@ -137,92 +90,41 @@ export default function CrawlDetailPage() {
       .map(([t]) => t);
   }, [issuesQuery.data]);
 
-  const issueColumns = useMemo(
-    () => [
-      issueColumnHelper.accessor("issue_type", {
-        header: "Type",
-        cell: (c) => (
-          <span className="text-[13px] text-[var(--charcoal)]">{c.getValue()}</span>
-        ),
-      }),
-      issueColumnHelper.accessor("severity", {
-        header: "Severity",
-        cell: (c) => (
-          <span className="text-[12px] font-semibold capitalize text-[var(--muted)]">
-            {c.getValue()}
-          </span>
-        ),
-      }),
-      issueColumnHelper.accessor("details", {
-        header: "Details",
-        cell: (c) => (
-          <span className="max-w-[320px] truncate text-[12px] text-[var(--muted)]">
-            {c.getValue() ?? "—"}
-          </span>
-        ),
-      }),
-    ],
+  const activeIssueType = useMemo(() => {
+    const rule = filterRules.find(
+      (r) => r.field === "issue_type" && r.op === "equals" && r.value,
+    );
+    return rule?.value ?? null;
+  }, [filterRules]);
+
+  const handleIssueSelect = useCallback(
+    (issueType: string | null) => {
+      if (!issueType) {
+        setFilterRules((prev) =>
+          prev.filter((r) => !(r.field === "issue_type" && r.op === "equals")),
+        );
+        return;
+      }
+      setFilterRules((prev) => {
+        const existing = prev.find(
+          (r) => r.field === "issue_type" && r.op === "equals",
+        );
+        if (existing) {
+          if (existing.value === issueType) {
+            return prev.filter((r) => r.id !== existing.id);
+          }
+          return prev.map((r) =>
+            r.id === existing.id ? { ...r, value: issueType } : r,
+          );
+        }
+        const rule = createFilterRule("issue_type");
+        rule.op = "equals";
+        rule.value = issueType;
+        return [...prev, rule];
+      });
+    },
     [],
   );
-
-  const issueTable = useReactTable({
-    data: issuesQuery.data ?? [],
-    columns: issueColumns,
-    getCoreRowModel: getCoreRowModel(),
-  });
-
-  const linkRows = linksQuery.data?.items ?? [];
-  const linkNext = linksQuery.data?.next_cursor ?? null;
-
-  const linkColumns = useMemo(
-    () => [
-      linkColumnHelper.accessor("source_url", {
-        header: "From",
-        cell: (c) => (
-          <span className="max-w-[200px] truncate text-[12px] text-[var(--charcoal)]">
-            {c.getValue()}
-          </span>
-        ),
-      }),
-      linkColumnHelper.accessor("target_url", {
-        header: "To",
-        cell: (c) => (
-          <span className="max-w-[200px] truncate text-[12px] text-[var(--charcoal)]">
-            {c.getValue()}
-          </span>
-        ),
-      }),
-      linkColumnHelper.accessor("status_code", {
-        header: "Code",
-        cell: (c) => (
-          <span className="font-mono text-[12px]">{c.getValue() ?? "—"}</span>
-        ),
-      }),
-      linkColumnHelper.accessor("link_type", {
-        header: "Type",
-        cell: (c) => (
-          <span className="text-[12px] text-[var(--muted)]">
-            {c.getValue() ?? "—"}
-          </span>
-        ),
-      }),
-      linkColumnHelper.accessor("anchor_text", {
-        header: "Anchor",
-        cell: (c) => (
-          <span className="max-w-[160px] truncate text-[12px] text-[var(--muted)]">
-            {c.getValue() ?? "—"}
-          </span>
-        ),
-      }),
-    ],
-    [],
-  );
-
-  const linkTable = useReactTable({
-    data: linkRows,
-    columns: linkColumns,
-    getCoreRowModel: getCoreRowModel(),
-  });
 
   if (!job) {
     return (
@@ -312,166 +214,21 @@ export default function CrawlDetailPage() {
               jobId={id}
               targetUrl={job.target_url}
               enabled={job.status === "complete"}
-              activeIssueType={issueFilter?.issue_type ?? null}
-              onIssueSelect={(type) => {
-                setIssueFilter(type ? { issue_type: type } : null);
-                if (type) setTab("pages");
-              }}
+              activeIssueType={activeIssueType}
+              onIssueSelect={handleIssueSelect}
             />
           </div>
 
-          <div className="min-w-0 space-y-4">
-            <div className="flex flex-wrap gap-1 border-b" style={{ borderColor: "var(--border-faded)" }}>
-              {(
-                [
-                  ["pages", "Pages"],
-                  ["issues", "Issues"],
-                  ["links", "Links"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setTab(key)}
-                  className="px-3 py-2 text-[12px] font-semibold transition-colors"
-                  style={{
-                    color: tab === key ? "var(--charcoal)" : "var(--muted)",
-                    borderBottom:
-                      tab === key ? "2px solid var(--charcoal)" : "2px solid transparent",
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {tab === "pages" ? (
-              <CrawlTable
-                jobId={id}
-                issueFilter={issueFilter}
-                onIssueFilterChange={setIssueFilter}
-                issueTypes={issueTypeList}
-                onQuerySnapshot={setExportSnapshot}
-              />
-            ) : null}
-
-            {tab === "issues" ? (
-              <div className="ds-table-wrap">
-                {issuesQuery.isLoading ? (
-                  <div className="flex items-center gap-2 p-6 text-[var(--muted)]">
-                    <span className="ds-spinner ds-spinner--sm" />
-                    Loading issues…
-                  </div>
-                ) : (
-                  <table className="ds-table">
-                    <thead>
-                      {issueTable.getHeaderGroups().map((hg) => (
-                        <tr key={hg.id}>
-                          {hg.headers.map((h) => (
-                            <th key={h.id}>
-                              {flexRender(h.column.columnDef.header, h.getContext())}
-                            </th>
-                          ))}
-                        </tr>
-                      ))}
-                    </thead>
-                    <tbody>
-                      {(issuesQuery.data ?? []).length === 0 ? (
-                        <tr>
-                          <td colSpan={3} className="py-8 text-center text-[var(--muted)]">
-                            No issues for this crawl.
-                          </td>
-                        </tr>
-                      ) : (
-                        issueTable.getRowModel().rows.map((row) => (
-                          <tr key={row.id}>
-                            {row.getVisibleCells().map((cell) => (
-                              <td key={cell.id}>
-                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                              </td>
-                            ))}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            ) : null}
-
-            {tab === "links" ? (
-              <div className="space-y-3">
-                <div className="ds-table-wrap">
-                  {linksQuery.isLoading ? (
-                    <div className="flex items-center gap-2 p-6 text-[var(--muted)]">
-                      <span className="ds-spinner ds-spinner--sm" />
-                      Loading links…
-                    </div>
-                  ) : (
-                    <table className="ds-table">
-                      <thead>
-                        {linkTable.getHeaderGroups().map((hg) => (
-                          <tr key={hg.id}>
-                            {hg.headers.map((h) => (
-                              <th key={h.id}>
-                                {flexRender(h.column.columnDef.header, h.getContext())}
-                              </th>
-                            ))}
-                          </tr>
-                        ))}
-                      </thead>
-                      <tbody>
-                        {linkRows.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center text-[var(--muted)]">
-                              No links indexed yet.
-                            </td>
-                          </tr>
-                        ) : (
-                          linkTable.getRowModel().rows.map((row) => (
-                            <tr key={row.id}>
-                              {row.getVisibleCells().map((cell) => (
-                                <td key={cell.id}>
-                                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                </td>
-                              ))}
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={linksStack.length === 0 || linksQuery.isLoading}
-                    onClick={() => {
-                      setLinksStack((s) => {
-                        if (s.length === 0) return s;
-                        const prev = s[s.length - 1];
-                        setLinksCursor(prev);
-                        return s.slice(0, -1);
-                      });
-                    }}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={!linkNext || linksQuery.isLoading}
-                    onClick={() => {
-                      setLinksStack((s) => [...s, linksCursor]);
-                      setLinksCursor(linkNext);
-                    }}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            ) : null}
+          <div className="min-w-0">
+            <CrawlTable
+              jobId={id}
+              filterRules={filterRules}
+              filterLogic={filterLogic}
+              onFilterRulesChange={setFilterRules}
+              onFilterLogicChange={setFilterLogic}
+              issueTypes={issueTypeList}
+              onQuerySnapshot={setExportSnapshot}
+            />
           </div>
         </div>
       ) : null}

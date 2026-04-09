@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -15,82 +16,205 @@ from sqlalchemy.orm import Session
 from app.auth import TenantDep
 from app.db import get_db
 from app.models import CrawlIssue, CrawlJob, CrawlLink, CrawlPage
-from app.schemas import CrawlComparisonSummary, CrawlIssueResponse, CrawlLinkResponse, CrawlPageResponse, PaginatedResponse
+from app.schemas import (
+    CrawlComparisonSummary,
+    CrawlIssueResponse,
+    CrawlLinkResponse,
+    CrawlPageResponse,
+    PageFilterRule,
+    PaginatedResponse,
+)
 from app.services.crawl_summary import build_comparison_summary
 
 router = APIRouter(tags=["results"])
 
 SORT_FIELDS = frozenset({"address", "status_code", "word_count", "response_time", "crawl_depth"})
 
+# ---------------------------------------------------------------------------
+# Dynamic filter engine
+# ---------------------------------------------------------------------------
 
-def _job_for_tenant(db: Session, tenant_id: UUID, job_id: UUID) -> CrawlJob:
-    job = db.execute(
-        select(CrawlJob).where(and_(CrawlJob.id == job_id, CrawlJob.tenant_id == tenant_id))
-    ).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
+FILTERABLE_FIELDS: dict[str, tuple[str, str]] = {
+    # field_key -> (CrawlPage attribute, type)
+    "address":                ("address", "string"),
+    "title":                  ("title", "string"),
+    "meta_description":       ("meta_description", "string"),
+    "h1":                     ("h1", "string"),
+    "canonical":              ("canonical", "string"),
+    "canonical_link_element": ("canonical_link_element", "string"),
+    "meta_robots":            ("meta_robots", "string"),
+    "x_robots_tag":           ("x_robots_tag", "string"),
+    "pagination_status":      ("pagination_status", "string"),
+    "content_type":           ("content_type", "string"),
+    "http_version":           ("http_version", "string"),
+    "redirect_url":           ("redirect_url", "string"),
+    "indexability":           ("indexability", "string"),
+    "status_code":            ("status_code", "number"),
+    "word_count":             ("word_count", "number"),
+    "crawl_depth":            ("crawl_depth", "number"),
+    "response_time":          ("response_time", "number"),
+    "size_bytes":             ("size_bytes", "number"),
+    "inlinks":                ("inlinks", "number"),
+    "outlinks":               ("outlinks", "number"),
+    "link_score":             ("link_score", "number"),
+    "in_sitemap":             ("in_sitemap", "boolean"),
+}
+
+STRING_OPS = frozenset({
+    "contains", "not_contains", "equals", "not_equals",
+    "starts_with", "ends_with", "is_empty", "is_not_empty", "regex",
+})
+NUMBER_OPS = frozenset({
+    "eq", "neq", "gt", "gte", "lt", "lte", "is_empty", "is_not_empty",
+})
+BOOLEAN_OPS = frozenset({"is_true", "is_false", "is_empty"})
+
+PSEUDO_FIELDS = frozenset({"has_issues", "issue_type"})
 
 
-def _parse_status_filter(raw: str | None) -> tuple[int | None, int | None]:
-    if raw is None or raw == "":
-        return None, None
-    r = raw.strip().lower()
-    if r == "4xx":
-        return 400, 499
-    if r == "5xx":
-        return 500, 599
-    if r == "3xx":
-        return 300, 399
-    if r == "2xx":
-        return 200, 299
+def _rule_to_clause(rule: PageFilterRule, job_id: UUID):
+    """Convert a single filter rule into a SQLAlchemy expression."""
+
+    if rule.field in PSEUDO_FIELDS:
+        return _pseudo_field_clause(rule, job_id)
+
+    spec = FILTERABLE_FIELDS.get(rule.field)
+    if spec is None:
+        raise HTTPException(status_code=400, detail=f"Unknown filter field: {rule.field}")
+
+    attr_name, ftype = spec
+    col = getattr(CrawlPage, attr_name)
+
+    if ftype == "string":
+        return _string_clause(col, rule.op, rule.value)
+    if ftype == "number":
+        return _number_clause(col, rule.op, rule.value)
+    if ftype == "boolean":
+        return _boolean_clause(col, rule.op)
+
+    raise HTTPException(status_code=400, detail=f"Unknown field type for {rule.field}")
+
+
+def _string_clause(col, op: str, value: str):
+    if op not in STRING_OPS:
+        raise HTTPException(status_code=400, detail=f"Invalid string operator: {op}")
+    if op == "contains":
+        return col.ilike(f"%{value}%")
+    if op == "not_contains":
+        return ~col.ilike(f"%{value}%") | col.is_(None)
+    if op == "equals":
+        return col == value
+    if op == "not_equals":
+        return (col != value) | col.is_(None)
+    if op == "starts_with":
+        return col.ilike(f"{value}%")
+    if op == "ends_with":
+        return col.ilike(f"%{value}")
+    if op == "is_empty":
+        return col.is_(None) | (col == "")
+    if op == "is_not_empty":
+        return col.isnot(None) & (col != "")
+    if op == "regex":
+        return col.op("~*")(value)
+    raise HTTPException(status_code=400, detail=f"Unhandled string operator: {op}")
+
+
+def _number_clause(col, op: str, value: str):
+    if op not in NUMBER_OPS:
+        raise HTTPException(status_code=400, detail=f"Invalid number operator: {op}")
+    if op == "is_empty":
+        return col.is_(None)
+    if op == "is_not_empty":
+        return col.isnot(None)
     try:
-        v = int(r)
-        return v, v
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail="Invalid status_code filter") from e
+        v = float(value)
+        if v == int(v):
+            v = int(v)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid number value: {value}") from e
+    if op == "eq":
+        return col == v
+    if op == "neq":
+        return (col != v) | col.is_(None)
+    if op == "gt":
+        return col > v
+    if op == "gte":
+        return col >= v
+    if op == "lt":
+        return col < v
+    if op == "lte":
+        return col <= v
+    raise HTTPException(status_code=400, detail=f"Unhandled number operator: {op}")
 
 
-def _apply_page_filters(
+def _boolean_clause(col, op: str):
+    if op not in BOOLEAN_OPS:
+        raise HTTPException(status_code=400, detail=f"Invalid boolean operator: {op}")
+    if op == "is_true":
+        return col.is_(True)
+    if op == "is_false":
+        return col.is_(False)
+    if op == "is_empty":
+        return col.is_(None)
+    raise HTTPException(status_code=400, detail=f"Unhandled boolean operator: {op}")
+
+
+def _pseudo_field_clause(rule: PageFilterRule, job_id: UUID):
+    if rule.field == "has_issues":
+        sub = exists().where(
+            and_(CrawlIssue.job_id == job_id, CrawlIssue.page_id == CrawlPage.id)
+        )
+        if rule.op == "is_true":
+            return sub
+        return ~sub
+
+    if rule.field == "issue_type":
+        sub = exists().where(
+            and_(
+                CrawlIssue.job_id == job_id,
+                CrawlIssue.page_id == CrawlPage.id,
+                CrawlIssue.issue_type == rule.value,
+            )
+        )
+        if rule.op == "not_equals":
+            return ~sub
+        return sub
+
+    raise HTTPException(status_code=400, detail=f"Unknown pseudo-field: {rule.field}")
+
+
+def _parse_filter_rules(raw: str | None) -> list[PageFilterRule]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail="Invalid filters JSON") from e
+    if not isinstance(data, list):
+        raise HTTPException(status_code=400, detail="filters must be a JSON array")
+    rules: list[PageFilterRule] = []
+    for item in data:
+        try:
+            rules.append(PageFilterRule.model_validate(item))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid filter rule: {e}") from e
+    return rules
+
+
+def _apply_dynamic_filters(
     stmt,
     job_id: UUID,
-    *,
-    status_lo: int | None,
-    status_hi: int | None,
-    indexability: str | None,
-    content_type: str | None,
-    has_issues: bool | None,
-    in_sitemap: bool | None,
-    search: str | None,
+    rules: list[PageFilterRule],
+    logic: str = "and",
 ):
     stmt = stmt.where(CrawlPage.job_id == job_id)
-    if status_lo is not None and status_hi is not None:
-        stmt = stmt.where(
-            CrawlPage.status_code.isnot(None),
-            CrawlPage.status_code >= status_lo,
-            CrawlPage.status_code <= status_hi,
-        )
-    if indexability:
-        stmt = stmt.where(CrawlPage.indexability == indexability)
-    if content_type:
-        stmt = stmt.where(CrawlPage.content_type.ilike(f"%{content_type}%"))
-    if has_issues is True:
-        sub = exists().where(
-            and_(CrawlIssue.job_id == job_id, CrawlIssue.page_id == CrawlPage.id)
-        )
-        stmt = stmt.where(sub)
-    elif has_issues is False:
-        sub = exists().where(
-            and_(CrawlIssue.job_id == job_id, CrawlIssue.page_id == CrawlPage.id)
-        )
-        stmt = stmt.where(~sub)
-    if in_sitemap is True:
-        stmt = stmt.where(CrawlPage.in_sitemap.is_(True))
-    elif in_sitemap is False:
-        stmt = stmt.where(CrawlPage.in_sitemap.is_(False))
-    if search:
-        term = f"%{search.strip()}%"
-        stmt = stmt.where(or_(CrawlPage.address.ilike(term), CrawlPage.title.ilike(term)))
+    if not rules:
+        return stmt
+    clauses = [_rule_to_clause(r, job_id) for r in rules]
+    if logic == "or":
+        stmt = stmt.where(or_(*clauses))
+    else:
+        stmt = stmt.where(and_(*clauses))
     return stmt
 
 
@@ -142,31 +266,17 @@ def list_pages(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     sort: Annotated[str, Query()] = "address",
     dir: Annotated[Literal["asc", "desc"], Query(alias="dir")] = "asc",
-    status_code: Annotated[str | None, Query()] = None,
-    indexability: Annotated[str | None, Query()] = None,
-    content_type: Annotated[str | None, Query()] = None,
-    has_issues: Annotated[bool | None, Query()] = None,
-    in_sitemap: Annotated[bool | None, Query()] = None,
-    search: Annotated[str | None, Query()] = None,
+    filters: Annotated[str | None, Query()] = None,
+    filter_logic: Annotated[Literal["and", "or"], Query()] = "and",
 ) -> PaginatedResponse[CrawlPageResponse]:
     _job_for_tenant(db, tenant.id, job_id)
     if sort not in SORT_FIELDS:
         raise HTTPException(status_code=400, detail="Invalid sort field")
 
-    lo, hi = _parse_status_filter(status_code)
-
-    filter_kw = dict(
-        status_lo=lo,
-        status_hi=hi,
-        indexability=indexability,
-        content_type=content_type,
-        has_issues=has_issues,
-        in_sitemap=in_sitemap,
-        search=search,
-    )
+    rules = _parse_filter_rules(filters)
 
     count_stmt = select(func.count(CrawlPage.id))
-    count_stmt = _apply_page_filters(count_stmt, job_id, **filter_kw)
+    count_stmt = _apply_dynamic_filters(count_stmt, job_id, rules, filter_logic)
     total = int(db.execute(count_stmt).scalar_one())
 
     k1, kcol, idcol = _sort_columns(sort)
@@ -176,7 +286,7 @@ def list_pages(
         order = (k1.desc(), kcol.desc().nulls_last(), idcol.desc())
 
     q = select(CrawlPage)
-    q = _apply_page_filters(q, job_id, **filter_kw)
+    q = _apply_dynamic_filters(q, job_id, rules, filter_logic)
     q = q.order_by(*order)
 
     if cursor:
@@ -244,30 +354,16 @@ def export_pages_csv(
     tenant: TenantDep,
     db: Annotated[Session, Depends(get_db)],
     format: Annotated[str, Query()] = "csv",
-    status_code: Annotated[str | None, Query()] = None,
-    indexability: Annotated[str | None, Query()] = None,
-    content_type: Annotated[str | None, Query()] = None,
-    has_issues: Annotated[bool | None, Query()] = None,
-    in_sitemap: Annotated[bool | None, Query()] = None,
-    search: Annotated[str | None, Query()] = None,
+    filters: Annotated[str | None, Query()] = None,
+    filter_logic: Annotated[Literal["and", "or"], Query()] = "and",
 ) -> StreamingResponse:
     if format.lower() != "csv":
         raise HTTPException(status_code=400, detail="Only format=csv is supported")
 
     _job_for_tenant(db, tenant.id, job_id)
-    lo, hi = _parse_status_filter(status_code)
+    rules = _parse_filter_rules(filters)
     q = select(CrawlPage)
-    q = _apply_page_filters(
-        q,
-        job_id,
-        status_lo=lo,
-        status_hi=hi,
-        indexability=indexability,
-        content_type=content_type,
-        has_issues=has_issues,
-        in_sitemap=in_sitemap,
-        search=search,
-    )
+    q = _apply_dynamic_filters(q, job_id, rules, filter_logic)
     q = q.order_by(CrawlPage.address.asc(), CrawlPage.id.asc())
 
     fieldnames = [

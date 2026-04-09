@@ -174,14 +174,8 @@ function buildPagesQuery(params: PagesQueryParams): Record<string, string | numb
   if (params.limit != null) q.limit = params.limit;
   if (params.sort) q.sort = params.sort;
   if (params.dir) q.dir = params.dir;
-  if (params.status_code) q.status_code = params.status_code;
-  if (params.indexability) q.indexability = params.indexability;
-  if (params.content_type) q.content_type = params.content_type;
-  if (params.in_sitemap != null) q.in_sitemap = params.in_sitemap;
-  if (params.search) q.search = params.search;
-  if (params.has_issues != null) q.has_issues = params.has_issues;
-  if (params.issue_type) q.issue_type = params.issue_type;
-  if (params.severity) q.severity = params.severity;
+  if (params.filters) q.filters = params.filters;
+  if (params.filter_logic && params.filter_logic !== "and") q.filter_logic = params.filter_logic;
   return q;
 }
 

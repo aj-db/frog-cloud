@@ -9,28 +9,28 @@ import {
 } from "@tanstack/react-table";
 import { useEffect, useMemo, useState } from "react";
 import type { CrawlPageRow, PagesQueryParams } from "@/lib/api-types";
+import type { FilterLogic, FilterRule } from "@/lib/filter-fields";
 import { Button } from "@/components/button";
-import { Input } from "@/components/input";
-import type { IssueFilter } from "@/components/issue-summary";
+import { FilterBuilder } from "@/components/filter-builder";
 import { useCrawlApi } from "@/lib/use-crawl-api";
 import { useQuery } from "@tanstack/react-query";
-
-const indexabilityOptions = [
-  { value: "", label: "Any indexability" },
-  { value: "Indexable", label: "Indexable" },
-  { value: "Non-Indexable", label: "Non-Indexable" },
-];
-
-const sitemapOptions = [
-  { value: "", label: "Any sitemap status" },
-  { value: "true", label: "In sitemap" },
-  { value: "false", label: "Not in sitemap" },
-];
 
 const DEPTH_SENTINEL = 2_147_483_647;
 function formatDepth(v: number | null | undefined): string {
   if (v == null || v >= DEPTH_SENTINEL) return "—";
   return String(v);
+}
+
+function serializeRules(rules: FilterRule[]): string | undefined {
+  const active = rules.filter((r) => {
+    const ops = ["is_empty", "is_not_empty", "is_true", "is_false"];
+    if (ops.includes(r.op)) return true;
+    return r.value.trim() !== "";
+  });
+  if (active.length === 0) return undefined;
+  return JSON.stringify(
+    active.map((r) => ({ field: r.field, op: r.op, value: r.value })),
+  );
 }
 
 export interface CrawlTableQuerySnapshot extends PagesQueryParams {
@@ -39,8 +39,10 @@ export interface CrawlTableQuerySnapshot extends PagesQueryParams {
 
 export interface CrawlTableProps {
   jobId: string;
-  issueFilter: IssueFilter | null;
-  onIssueFilterChange?: (filter: IssueFilter | null) => void;
+  filterRules: FilterRule[];
+  filterLogic: FilterLogic;
+  onFilterRulesChange: (rules: FilterRule[]) => void;
+  onFilterLogicChange: (logic: FilterLogic) => void;
   issueTypes?: string[];
   onQuerySnapshot?: (q: CrawlTableQuerySnapshot) => void;
 }
@@ -50,20 +52,24 @@ function SortIndicator({ active, dir }: { active: boolean; dir: "asc" | "desc" }
   return <span aria-hidden>{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
-export function CrawlTable({ jobId, issueFilter, onIssueFilterChange, issueTypes = [], onQuerySnapshot }: CrawlTableProps) {
+export function CrawlTable({
+  jobId,
+  filterRules,
+  filterLogic,
+  onFilterRulesChange,
+  onFilterLogicChange,
+  issueTypes = [],
+  onQuerySnapshot,
+}: CrawlTableProps) {
   const api = useCrawlApi();
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorStack, setCursorStack] = useState<(string | null)[]>([]);
   const [sorting, setSorting] = useState<SortingState>([{ id: "address", desc: false }]);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [indexability, setIndexability] = useState("");
-  const [contentType, setContentType] = useState("");
-  const [sitemapFilter, setSitemapFilter] = useState("");
-  const [search, setSearch] = useState("");
-  const [hasIssues, setHasIssues] = useState(false);
 
   const sortKey = (sorting[0]?.id ?? "address") as PagesQueryParams["sort"];
   const sortDir = sorting[0]?.desc ? "desc" : "asc";
+
+  const serializedFilters = useMemo(() => serializeRules(filterRules), [filterRules]);
 
   const queryParams: PagesQueryParams = useMemo(
     () => ({
@@ -71,28 +77,10 @@ export function CrawlTable({ jobId, issueFilter, onIssueFilterChange, issueTypes
       limit: 100,
       sort: sortKey,
       dir: sortDir,
-      status_code: statusFilter || undefined,
-      indexability: indexability || undefined,
-      content_type: contentType || undefined,
-      in_sitemap: sitemapFilter === "true" ? true : sitemapFilter === "false" ? false : undefined,
-      search: search || undefined,
-      has_issues: hasIssues || undefined,
-      issue_type: issueFilter?.issue_type,
-      severity: issueFilter?.severity,
+      filters: serializedFilters,
+      filter_logic: filterLogic,
     }),
-    [
-      cursor,
-      sortKey,
-      sortDir,
-      statusFilter,
-      indexability,
-      contentType,
-      sitemapFilter,
-      search,
-      hasIssues,
-      issueFilter?.issue_type,
-      issueFilter?.severity,
-    ],
+    [cursor, sortKey, sortDir, serializedFilters, filterLogic],
   );
 
   const snapshot: CrawlTableQuerySnapshot = useMemo(
@@ -114,6 +102,18 @@ export function CrawlTable({ jobId, issueFilter, onIssueFilterChange, issueTypes
   const nextCursor = pagesQuery.data?.next_cursor ?? null;
 
   const [selected, setSelected] = useState<CrawlPageRow | null>(null);
+
+  const handleRulesChange = (rules: FilterRule[]) => {
+    onFilterRulesChange(rules);
+    setCursor(null);
+    setCursorStack([]);
+  };
+
+  const handleLogicChange = (logic: FilterLogic) => {
+    onFilterLogicChange(logic);
+    setCursor(null);
+    setCursorStack([]);
+  };
 
   const columns = useMemo<ColumnDef<CrawlPageRow>[]>(
     () => [
@@ -345,130 +345,13 @@ export function CrawlTable({ jobId, issueFilter, onIssueFilterChange, issueTypes
 
   return (
     <div className="space-y-3">
-      <div className="ds-card grid items-end gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-        <Input
-          label="Search URL or title"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setCursor(null);
-            setCursorStack([]);
-          }}
-          placeholder="https://example.com"
-        />
-        <div>
-          <label className="ds-label" htmlFor="status-code-filter">
-            Status code
-          </label>
-          <input
-            id="status-code-filter"
-            className="ds-input"
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setCursor(null);
-              setCursorStack([]);
-            }}
-            placeholder="e.g. 404 or 4xx"
-          />
-        </div>
-        <div>
-          <label className="ds-label" htmlFor="index-filter">
-            Indexability
-          </label>
-          <select
-            id="index-filter"
-            className="ds-select"
-            value={indexability}
-            onChange={(e) => {
-              setIndexability(e.target.value);
-              setCursor(null);
-              setCursorStack([]);
-            }}
-          >
-            {indexabilityOptions.map((o) => (
-              <option key={o.value || "any"} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="ds-label" htmlFor="content-type-filter">
-            Content type
-          </label>
-          <input
-            id="content-type-filter"
-            className="ds-input"
-            value={contentType}
-            onChange={(e) => {
-              setContentType(e.target.value);
-              setCursor(null);
-              setCursorStack([]);
-            }}
-            placeholder="e.g. text/html"
-          />
-        </div>
-        <div>
-          <label className="ds-label" htmlFor="sitemap-filter">
-            Sitemap
-          </label>
-          <select
-            id="sitemap-filter"
-            className="ds-select"
-            value={sitemapFilter}
-            onChange={(e) => {
-              setSitemapFilter(e.target.value);
-              setCursor(null);
-              setCursorStack([]);
-            }}
-          >
-            {sitemapOptions.map((o) => (
-              <option key={o.value || "any"} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        {issueTypes.length > 0 ? (
-          <div>
-            <label className="ds-label" htmlFor="issue-type-filter">
-              Issue type
-            </label>
-            <select
-              id="issue-type-filter"
-              className="ds-select"
-              value={issueFilter?.issue_type ?? ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                onIssueFilterChange?.(val ? { issue_type: val } : null);
-                setCursor(null);
-                setCursorStack([]);
-              }}
-            >
-              <option value="">Any issue type</option>
-              {issueTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        <label className="flex h-9 items-center gap-2 text-[12px] font-medium text-[var(--charcoal)]">
-          <input
-            type="checkbox"
-            checked={hasIssues}
-            onChange={(e) => {
-              setHasIssues(e.target.checked);
-              setCursor(null);
-              setCursorStack([]);
-            }}
-            className="h-4 w-4 rounded border border-[var(--border)]"
-          />
-          Only URLs with issues
-        </label>
-      </div>
+      <FilterBuilder
+        rules={filterRules}
+        logic={filterLogic}
+        onRulesChange={handleRulesChange}
+        onLogicChange={handleLogicChange}
+        issueTypes={issueTypes}
+      />
 
       <div className="ds-table-wrap">
         <table className="ds-table">
