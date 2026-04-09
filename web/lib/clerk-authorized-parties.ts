@@ -3,6 +3,8 @@ const LOCAL_AUTHORIZED_PARTIES = [
   "http://localhost:3002",
 ] as const;
 
+type ClerkEnv = Record<string, string | undefined>;
+
 function normalizeOrigin(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -19,7 +21,7 @@ function normalizeOrigin(value: string): string | null {
 }
 
 export function getClerkAuthorizedParties(
-  env: NodeJS.ProcessEnv = process.env,
+  env: ClerkEnv = process.env,
 ): string[] {
   const configured = (env.CLERK_AUTHORIZED_PARTIES ?? "")
     .split(",")

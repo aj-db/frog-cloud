@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import { getClerkProviderProps } from "../lib/clerk-provider-config";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -14,8 +15,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const clerkProviderProps = getClerkProviderProps();
+
   return (
-    <ClerkProvider>
+    <ClerkProvider {...clerkProviderProps}>
       <html lang="en">
         <body
           className="min-h-screen antialiased"
