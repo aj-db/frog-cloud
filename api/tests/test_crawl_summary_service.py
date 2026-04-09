@@ -24,7 +24,7 @@ def _make_job(
     created_at: datetime | None = None,
     completed_at: datetime | None = None,
 ) -> CrawlJob:
-    job = CrawlJob.__new__(CrawlJob)
+    job = MagicMock(spec=CrawlJob)
     job.id = uuid.uuid4()
     job.tenant_id = tenant_id or uuid.uuid4()
     job.profile_id = profile_id or uuid.uuid4()
@@ -40,6 +40,8 @@ def _make_job(
     job.created_at = created_at or datetime.now(timezone.utc)
     job.updated_at = datetime.now(timezone.utc)
     job.last_heartbeat_at = None
+    job.max_urls = None
+    job.status_message = None
     return job
 
 

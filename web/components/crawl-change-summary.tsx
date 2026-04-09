@@ -35,19 +35,23 @@ function StatusDonut({ slices, size = 120, stroke = 18 }: { slices: DonutSlice[]
 
   const r = (size - stroke) / 2;
   const c = Math.PI * 2 * r;
-  let offset = 0;
+
+  const arcs = slices.reduce<{ label: string; color: string; value: number; dashLen: number; gap: number; offset: number }[]>(
+    (acc, s) => {
+      if (s.value === 0) return acc;
+      const dashLen = (s.value / total) * c;
+      const prevOffset = acc.length > 0 ? acc[acc.length - 1].offset + acc[acc.length - 1].dashLen : 0;
+      acc.push({ ...s, dashLen, gap: c - dashLen, offset: prevOffset });
+      return acc;
+    },
+    [],
+  );
 
   return (
     <div className="flex items-center gap-6">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
-          {slices.map((s) => {
-            if (s.value === 0) return null;
-            const pct = s.value / total;
-            const dashLen = pct * c;
-            const gap = c - dashLen;
-            const o = offset;
-            offset += dashLen;
+          {arcs.map((s) => {
             const isHovered = hovered === s.label;
             return (
               <circle
@@ -58,8 +62,8 @@ function StatusDonut({ slices, size = 120, stroke = 18 }: { slices: DonutSlice[]
                 fill="none"
                 stroke={s.color}
                 strokeWidth={isHovered ? stroke + 4 : stroke}
-                strokeDasharray={`${dashLen} ${gap}`}
-                strokeDashoffset={-o}
+                strokeDasharray={`${s.dashLen} ${s.gap}`}
+                strokeDashoffset={-s.offset}
                 className="transition-all duration-150"
                 style={{ opacity: hovered && !isHovered ? 0.35 : 1 }}
                 onMouseEnter={() => setHovered(s.label)}
