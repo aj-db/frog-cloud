@@ -12,6 +12,8 @@ from app.schemas import (
     CrawlComparisonSummary,
     CrawlSnapshotAggregates,
     IndexabilityDistribution,
+    IssueTrendPoint,
+    IssueTrendResponse,
     IssueTypeDelta,
     SitemapCoverage,
     StatusCodeDistribution,
@@ -129,6 +131,52 @@ def _issue_type_counts(db: Session, job_id: UUID) -> dict[str, int]:
         .group_by(CrawlIssue.issue_type)
     ).all()
     return {r.issue_type: r.cnt for r in rows}
+
+
+def build_issues_trend(db: Session, tenant_id: UUID) -> IssueTrendResponse:
+    rows = db.execute(
+        select(
+            CrawlJob.id.label("job_id"),
+            CrawlJob.completed_at,
+            CrawlJob.target_url,
+            CrawlIssue.issue_type,
+            func.count(func.distinct(CrawlIssue.page_id)).label("url_count"),
+        )
+        .join(CrawlIssue, CrawlIssue.job_id == CrawlJob.id)
+        .where(
+            and_(
+                CrawlJob.tenant_id == tenant_id,
+                CrawlJob.status == JobStatus.complete,
+            )
+        )
+        .group_by(
+            CrawlJob.id,
+            CrawlJob.completed_at,
+            CrawlJob.target_url,
+            CrawlIssue.issue_type,
+        )
+        .order_by(
+            CrawlJob.completed_at.asc(),
+            CrawlJob.id.asc(),
+            CrawlIssue.issue_type.asc(),
+        )
+    ).all()
+
+    points = [
+        IssueTrendPoint(
+            job_id=str(row.job_id),
+            completed_at=row.completed_at,
+            target_url=row.target_url,
+            issue_type=row.issue_type,
+            url_count=row.url_count,
+        )
+        for row in rows
+    ]
+
+    return IssueTrendResponse(
+        points=points,
+        issue_types=sorted({point.issue_type for point in points}),
+    )
 
 
 def build_comparison_summary(

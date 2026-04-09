@@ -8,6 +8,7 @@ import type {
   CreateCrawlInput,
   CreateProfileInput,
   CreateScheduleInput,
+  IssueTrendResponse,
   PaginatedPages,
   PagesQueryParams,
   ScheduledCrawl,
@@ -87,6 +88,13 @@ export interface paths {
       };
       responses: {
         200: { content: { "application/json": CrawlComparisonSummary } };
+      };
+    };
+  };
+  "/api/crawls/issues-trend": {
+    get: {
+      responses: {
+        200: { content: { "application/json": IssueTrendResponse } };
       };
     };
   };
@@ -302,6 +310,16 @@ export function createCrawlApi(getToken: GetToken) {
       });
       if (error || !response.ok || !data) {
         throw new ApiRequestError("Failed to load summary", response.status, error);
+      }
+      return data;
+    },
+
+    getIssuesTrend: async (): Promise<IssueTrendResponse> => {
+      const { data, error, response } = await client.GET("/api/crawls/issues-trend", {
+        headers: await headers(),
+      });
+      if (error || !response.ok || !data) {
+        throw new ApiRequestError("Failed to load issues trend", response.status, error);
       }
       return data;
     },

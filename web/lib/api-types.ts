@@ -188,6 +188,19 @@ export interface CrawlComparisonSummary {
   issue_type_deltas: IssueTypeDelta[];
 }
 
+export interface IssueTrendPoint {
+  job_id: string;
+  completed_at: string | null;
+  target_url: string;
+  issue_type: string;
+  url_count: number;
+}
+
+export interface IssueTrendResponse {
+  points: IssueTrendPoint[];
+  issue_types: string[];
+}
+
 // --- Errors ------------------------------------------------------------------
 
 export class ApiRequestError extends Error {

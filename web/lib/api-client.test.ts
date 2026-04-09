@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCrawlApi } from "./api-client";
-import type { CrawlComparisonSummary, CrawlJobAccepted } from "./api-types";
+import type {
+  CrawlComparisonSummary,
+  CrawlJobAccepted,
+  IssueTrendResponse,
+} from "./api-types";
 import { ApiRequestError } from "./api-types";
 
 const originalFetch = global.fetch;
@@ -79,6 +83,30 @@ describe("createCrawlApi", () => {
     expect(request.method).toBe("GET");
     expect(url.pathname).toBe("/api/crawls/job-1/summary");
     expect(url.searchParams.get("previous_job_id")).toBe("prev-1");
+    expect(request.headers.get("authorization")).toBe("Bearer token-123");
+  });
+
+  it("loads issues trend for completed crawls", async () => {
+    const trend: IssueTrendResponse = {
+      issue_types: ["missing_title"],
+      points: [
+        {
+          job_id: "job-1",
+          completed_at: "2026-04-08T00:00:00.000Z",
+          target_url: "https://example.com",
+          issue_type: "missing_title",
+          url_count: 3,
+        },
+      ],
+    };
+    fetchMock.mockResolvedValue(jsonResponse(trend));
+
+    const api = createCrawlApi(getToken);
+    await expect(api.getIssuesTrend()).resolves.toEqual(trend);
+
+    const request = requestAt(fetchMock);
+    expect(request.method).toBe("GET");
+    expect(new URL(request.url).pathname).toBe("/api/crawls/issues-trend");
     expect(request.headers.get("authorization")).toBe("Bearer token-123");
   });
 

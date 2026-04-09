@@ -318,6 +318,19 @@ class CrawlComparisonSummary(BaseModel):
     issue_type_deltas: list[IssueTypeDelta] = []
 
 
+class IssueTrendPoint(BaseModel):
+    job_id: str
+    completed_at: datetime | None
+    target_url: str
+    issue_type: str
+    url_count: int
+
+
+class IssueTrendResponse(BaseModel):
+    points: list[IssueTrendPoint] = Field(default_factory=list)
+    issue_types: list[str] = Field(default_factory=list)
+
+
 # --- Page filter rules --------------------------------------------------------
 
 

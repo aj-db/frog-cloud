@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Alert } from "@/components/alert";
 import { Button } from "@/components/button";
+import { IssuesTrendChart } from "@/components/issues-trend-chart";
 import { CrawlStatusBadge } from "@/components/crawl-status-badge";
 import type { CrawlJob } from "@/lib/api-types";
 import { formatDuration } from "@/lib/duration";
@@ -117,6 +118,10 @@ export default function CrawlsPage() {
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
+  const completedCrawls = useMemo(
+    () => (query.data ?? []).filter((crawl) => crawl.status === "complete"),
+    [query.data],
+  );
 
   return (
     <div className="space-y-6">
@@ -166,31 +171,37 @@ export default function CrawlsPage() {
       ) : null}
 
       {query.isSuccess && query.data.length > 0 ? (
-        <div className="ds-table-wrap">
-          <table className="ds-table">
-            <thead>
-              {table.getHeaderGroups().map((hg) => (
-                <tr key={hg.id}>
-                  {hg.headers.map((header) => (
-                    <th key={header.id}>
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {table.getRowModel().rows.map((row) => (
-                <tr key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-6">
+          {completedCrawls.length > 0 ? (
+            <IssuesTrendChart completedCrawls={completedCrawls} />
+          ) : null}
+
+          <div className="ds-table-wrap">
+            <table className="ds-table">
+              <thead>
+                {table.getHeaderGroups().map((hg) => (
+                  <tr key={hg.id}>
+                    {hg.headers.map((header) => (
+                      <th key={header.id}>
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {table.getRowModel().rows.map((row) => (
+                  <tr key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : null}
 

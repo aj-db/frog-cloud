@@ -20,7 +20,9 @@ from app.schemas import (
     CrawlJobListEnvelope,
     CrawlJobListResponse,
     CrawlJobResponse,
+    IssueTrendResponse,
 )
+from app.services.crawl_summary import build_issues_trend
 from crawler.executor import enqueue_job_execution
 from crawler.ssrf import UnsafeUrlError, validate_public_http_url
 
@@ -127,6 +129,14 @@ def list_crawls(
         items=[CrawlJobListResponse.model_validate(r) for r in rows],
         next_cursor=next_cursor,
     )
+
+
+@router.get("/issues-trend", response_model=IssueTrendResponse)
+def get_issues_trend(
+    tenant: TenantDep,
+    db: Annotated[Session, Depends(get_db)],
+) -> IssueTrendResponse:
+    return build_issues_trend(db, tenant.id)
 
 
 @router.get("/{job_id}", response_model=CrawlJobResponse)
