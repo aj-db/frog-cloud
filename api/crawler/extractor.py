@@ -12,7 +12,14 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import CrawlIssue, CrawlJob, CrawlLink, CrawlPage, IssueSeverity, JobStatus
+from app.models import (
+    CrawlIssue,
+    CrawlJob,
+    CrawlLink,
+    CrawlPage,
+    IssueSeverity,
+    JobStatus,
+)
 from crawler.progress import set_job_error, transition_job_status, update_heartbeat
 
 logger = logging.getLogger(__name__)
@@ -154,7 +161,13 @@ def _row_to_page_dict(job_id: UUID, row: dict[str, Any]) -> dict[str, Any]:
         "status_code": _to_int(_cell(row, "status_code", "status code", "Status Code")),
         "title": _as_str(_cell(row, "title", "Title")),
         "meta_description": _as_str(
-            _cell(row, "meta_description", "meta description 1", "Meta Description 1", "Meta Description")
+            _cell(
+                row,
+                "meta_description",
+                "meta description 1",
+                "Meta Description 1",
+                "Meta Description",
+            )
         ),
         "h1": _as_str(_cell(row, "h1", "h1-1", "H1-1", "H1")),
         "word_count": _to_int(_cell(row, "word_count", "word count", "Word Count")),
@@ -163,7 +176,12 @@ def _row_to_page_dict(job_id: UUID, row: dict[str, Any]) -> dict[str, Any]:
         "response_time": _to_float(_cell(row, "response_time", "response time", "Response Time")),
         "canonical": _as_str(_cell(row, "canonical", "Canonical")),
         "canonical_link_element": _as_str(
-            _cell(row, "canonical link element 1", "canonical link element", "Canonical Link Element 1")
+            _cell(
+                row,
+                "canonical link element 1",
+                "canonical link element",
+                "Canonical Link Element 1",
+            )
         ),
         "content_type": _as_str(_cell(row, "content_type", "content type", "Content Type")),
         "redirect_url": _as_str(_cell(row, "redirect url", "Redirect URL", "redirect_url")),
@@ -171,9 +189,7 @@ def _row_to_page_dict(job_id: UUID, row: dict[str, Any]) -> dict[str, Any]:
         "inlinks": _to_int(_cell(row, "inlinks", "inlinks count", "Inlinks")),
         "outlinks": _to_int(_cell(row, "outlinks", "outlinks count", "Outlinks")),
         "meta_robots": _as_str(_cell(row, "meta robots 1", "meta robots", "Meta Robots 1")),
-        "pagination_status": _as_str(
-            _cell(row, "pagination", "pagination_status", "Pagination")
-        ),
+        "pagination_status": _as_str(_cell(row, "pagination", "pagination_status", "Pagination")),
         "http_version": _as_str(_cell(row, "http version", "HTTP Version")),
         "x_robots_tag": _as_str(_cell(row, "x-robots-tag 1", "x-robots-tag", "X-Robots-Tag 1")),
         "link_score": _to_float(_cell(row, "link score", "Link Score")),
@@ -325,7 +341,12 @@ def extract_crawl_to_postgres(
     job.urls_crawled = total
     db.add(job)
     db.commit()
-    update_heartbeat(db, job_id, urls_crawled=total, status_message="Loading issues into the database…")
+    update_heartbeat(
+        db,
+        job_id,
+        urls_crawled=total,
+        status_message="Loading issues into the database…",
+    )
     last_loading_heartbeat_at = time.monotonic()
 
     # --- Issues from bundled reports ---------------------------------
@@ -376,7 +397,12 @@ def extract_crawl_to_postgres(
     if issue_batch:
         db.bulk_insert_mappings(CrawlIssue, issue_batch)
         db.commit()
-    update_heartbeat(db, job_id, urls_crawled=total, status_message="Loading links into the database…")
+    update_heartbeat(
+        db,
+        job_id,
+        urls_crawled=total,
+        status_message="Loading links into the database…",
+    )
     last_loading_heartbeat_at = time.monotonic()
 
     # --- Outlinks -----------------------------------------------------

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import signal
 import shlex
 import subprocess
@@ -138,7 +139,16 @@ def _delete_self_instance() -> None:
 
     try:
         subprocess.run(
-            ["gcloud", "compute", "instances", "delete", name, "--zone", zone, "--quiet"],
+            [
+                "gcloud",
+                "compute",
+                "instances",
+                "delete",
+                name,
+                "--zone",
+                zone,
+                "--quiet",
+            ],
             check=False,
             timeout=600,
             env=os.environ.copy(),
@@ -258,11 +268,7 @@ def _format_crawl_failure(
     return "\n".join(parts)
 
 
-import re
-
-_PROGRESS_RE = re.compile(
-    r"SpiderProgress\s*\[.*?mCompleted=([0-9,]+).*?mWaiting=([0-9,]+).*?mCompleted=([0-9.]+)%"
-)
+_PROGRESS_RE = re.compile(r"SpiderProgress\s*\[.*?mCompleted=([0-9,]+).*?mWaiting=([0-9,]+).*?mCompleted=([0-9.]+)%")
 _DBCONTEXT_PATH_RE = re.compile(r"Torn down DbContext with path (\S+)")
 
 
@@ -345,12 +351,7 @@ def _wait_for_crawl_process(
                 pct, completed = _parse_crawl_progress(stdout_log)
                 if completed is not None and pct is not None:
                     msg = f"Crawling — {completed:,} URLs processed ({pct:.1f}%)"
-            if (
-                max_urls is not None
-                and completed is not None
-                and completed >= max_urls
-                and not limit_stop_requested
-            ):
+            if max_urls is not None and completed is not None and completed >= max_urls and not limit_stop_requested:
                 limit_stop_requested = True
                 limit_stop_requested_at = time.monotonic()
                 msg = f"Crawl limit reached — stopping at {completed:,} URLs"
@@ -472,9 +473,7 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
 
         update_heartbeat(db, job_id, status_message="Loading crawl profile…")
 
-        profile = db.execute(
-            select(CrawlProfile).where(CrawlProfile.id == job.profile_id)
-        ).scalar_one_or_none()
+        profile = db.execute(select(CrawlProfile).where(CrawlProfile.id == job.profile_id)).scalar_one_or_none()
         if profile is None:
             set_job_error(db, job_id, "Profile not found")
             return

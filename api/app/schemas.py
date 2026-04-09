@@ -34,6 +34,7 @@ class PaginatedResponse[T](BaseModel):
 
 # --- Tenant -----------------------------------------------------------------
 
+
 class TenantResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -51,6 +52,7 @@ class TenantResponse(BaseModel):
 
 
 # --- Crawl profile ------------------------------------------------------------
+
 
 class CrawlProfileCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -81,6 +83,7 @@ class CrawlProfileResponse(BaseModel):
 
 
 # --- Crawl job ----------------------------------------------------------------
+
 
 class CrawlJobCreate(BaseModel):
     profile_id: str
@@ -151,6 +154,7 @@ class CrawlJobListEnvelope(BaseModel):
 
 # --- Crawl page ---------------------------------------------------------------
 
+
 class CrawlPageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -192,6 +196,7 @@ class CrawlPageResponse(BaseModel):
 
 # --- Issues / links -----------------------------------------------------------
 
+
 class CrawlIssueResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -228,6 +233,7 @@ class CrawlLinkResponse(BaseModel):
 
 
 # --- Scheduled crawl ----------------------------------------------------------
+
 
 class ScheduledCrawlCreate(BaseModel):
     profile_id: str
@@ -322,6 +328,7 @@ class PageFilterRule(BaseModel):
 
 
 # --- Internal payloads --------------------------------------------------------
+
 
 class LaunchWorkerPayload(BaseModel):
     job_id: str

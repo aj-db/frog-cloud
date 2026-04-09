@@ -173,6 +173,5 @@ def test_extract_crawl_to_postgres_emits_heartbeats_during_page_loading(monkeypa
     )
 
     assert any(
-        urls_crawled == 2 and message == "Loading pages into the database…"
-        for urls_crawled, message in heartbeats
+        urls_crawled == 2 and message == "Loading pages into the database…" for urls_crawled, message in heartbeats
     )

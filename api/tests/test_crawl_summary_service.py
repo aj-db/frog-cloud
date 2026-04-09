@@ -6,7 +6,6 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.models import CrawlJob, JobExecutor, JobStatus
 from app.services.crawl_summary import (
@@ -50,14 +49,20 @@ def test_no_previous_crawl_returns_none_previous():
 
     db.execute.return_value.scalar_one_or_none.return_value = None
     db.execute.return_value.scalar_one.side_effect = [
-        42.5,   # avg response time
-        3,      # issues count
+        42.5,  # avg response time
+        3,  # issues count
     ]
     db.execute.return_value.all.return_value = []
 
     with patch("app.services.crawl_summary._find_previous_job", return_value=None):
         with patch("app.services.crawl_summary._build_aggregates") as mock_agg:
-            from app.schemas import CrawlSnapshotAggregates, IndexabilityDistribution, SitemapCoverage, StatusCodeDistribution
+            from app.schemas import (
+                CrawlSnapshotAggregates,
+                IndexabilityDistribution,
+                SitemapCoverage,
+                StatusCodeDistribution,
+            )
+
             mock_agg.return_value = CrawlSnapshotAggregates(
                 job_id=str(job.id),
                 target_url=job.target_url,
@@ -132,8 +137,14 @@ def test_with_previous_crawl_computes_deltas():
 
     with (
         patch("app.services.crawl_summary._find_previous_job", return_value=prev_job),
-        patch("app.services.crawl_summary._build_aggregates", side_effect=[current_agg, prev_agg]),
-        patch("app.services.crawl_summary._issue_type_counts", side_effect=[cur_issues, prev_issues]),
+        patch(
+            "app.services.crawl_summary._build_aggregates",
+            side_effect=[current_agg, prev_agg],
+        ),
+        patch(
+            "app.services.crawl_summary._issue_type_counts",
+            side_effect=[cur_issues, prev_issues],
+        ),
     ):
         summary = build_comparison_summary(db, current_job)
 

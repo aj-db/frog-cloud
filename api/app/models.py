@@ -57,16 +57,12 @@ def _uuid() -> uuid.UUID:
 class Tenant(Base):
     __tablename__ = "tenants"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     clerk_org_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(512), nullable=False)
     plan: Mapped[str] = mapped_column(String(64), default="free", nullable=False)
     settings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -82,18 +78,14 @@ class Tenant(Base):
 class CrawlProfile(Base):
     __tablename__ = "crawl_profiles"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     config_path: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -105,22 +97,20 @@ class CrawlProfile(Base):
     crawl_jobs: Mapped[list[CrawlJob]] = relationship(back_populates="profile")
     scheduled_crawls: Mapped[list[ScheduledCrawl]] = relationship(back_populates="profile")
 
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "name", name="uq_crawl_profiles_tenant_name"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "name", name="uq_crawl_profiles_tenant_name"),)
 
 
 class CrawlJob(Base):
     __tablename__ = "crawl_jobs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     profile_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crawl_profiles.id", ondelete="RESTRICT"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("crawl_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     target_url: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[JobStatus] = mapped_column(
@@ -146,17 +136,13 @@ class CrawlJob(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_heartbeat_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     max_urls: Mapped[int | None] = mapped_column(Integer, nullable=True)
     urls_crawled: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status_message: Mapped[str | None] = mapped_column(String(512), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     artifact_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -166,25 +152,19 @@ class CrawlJob(Base):
 
     tenant: Mapped[Tenant] = relationship(back_populates="crawl_jobs")
     profile: Mapped[CrawlProfile] = relationship(back_populates="crawl_jobs")
-    pages: Mapped[list[CrawlPage]] = relationship(
-        back_populates="job", cascade="all, delete-orphan"
-    )
-    issues: Mapped[list[CrawlIssue]] = relationship(
-        back_populates="job", cascade="all, delete-orphan"
-    )
-    links: Mapped[list[CrawlLink]] = relationship(
-        back_populates="job", cascade="all, delete-orphan"
-    )
+    pages: Mapped[list[CrawlPage]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    issues: Mapped[list[CrawlIssue]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    links: Mapped[list[CrawlLink]] = relationship(back_populates="job", cascade="all, delete-orphan")
 
 
 class CrawlPage(Base):
     __tablename__ = "crawl_pages"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     job_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crawl_jobs.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("crawl_jobs.id", ondelete="CASCADE"),
+        nullable=False,
     )
     address: Mapped[str] = mapped_column(Text, nullable=False)
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -209,9 +189,7 @@ class CrawlPage(Base):
     link_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     in_sitemap: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     extra_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -226,14 +204,16 @@ class CrawlPage(Base):
 class CrawlIssue(Base):
     __tablename__ = "crawl_issues"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     job_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crawl_jobs.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("crawl_jobs.id", ondelete="CASCADE"),
+        nullable=False,
     )
     page_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crawl_pages.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("crawl_pages.id", ondelete="SET NULL"),
+        nullable=True,
     )
     issue_type: Mapped[str] = mapped_column(String(255), nullable=False)
     severity: Mapped[IssueSeverity] = mapped_column(
@@ -247,9 +227,7 @@ class CrawlIssue(Base):
         default=IssueSeverity.warning,
     )
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -264,20 +242,18 @@ class CrawlIssue(Base):
 class CrawlLink(Base):
     __tablename__ = "crawl_links"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     job_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crawl_jobs.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("crawl_jobs.id", ondelete="CASCADE"),
+        nullable=False,
     )
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     target_url: Mapped[str] = mapped_column(Text, nullable=False)
     link_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     anchor_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -291,22 +267,20 @@ class CrawlLink(Base):
 class ScheduledCrawl(Base):
     __tablename__ = "scheduled_crawls"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
     profile_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("crawl_profiles.id", ondelete="RESTRICT"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("crawl_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     target_url: Mapped[str] = mapped_column(Text, nullable=False)
     cron_expression: Mapped[str] = mapped_column(String(128), nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

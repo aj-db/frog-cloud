@@ -46,9 +46,7 @@ def _status_code_distribution(db: Session, job_id: UUID) -> StatusCodeDistributi
         else_="other",
     )
     rows = db.execute(
-        select(bucket.label("bucket"), func.count().label("cnt"))
-        .where(CrawlPage.job_id == job_id)
-        .group_by("bucket")
+        select(bucket.label("bucket"), func.count().label("cnt")).where(CrawlPage.job_id == job_id).group_by("bucket")
     ).all()
     dist = StatusCodeDistribution()
     for row in rows:
@@ -89,9 +87,7 @@ def _sitemap_coverage(db: Session, job_id: UUID) -> SitemapCoverage:
         else_="unknown",
     )
     rows = db.execute(
-        select(bucket.label("bucket"), func.count().label("cnt"))
-        .where(CrawlPage.job_id == job_id)
-        .group_by("bucket")
+        select(bucket.label("bucket"), func.count().label("cnt")).where(CrawlPage.job_id == job_id).group_by("bucket")
     ).all()
     cov = SitemapCoverage()
     for row in rows:
@@ -111,9 +107,7 @@ def _build_aggregates(db: Session, job: CrawlJob) -> CrawlSnapshotAggregates:
         )
     ).scalar_one()
 
-    issues_count = db.execute(
-        select(func.count(CrawlIssue.id)).where(CrawlIssue.job_id == job.id)
-    ).scalar_one()
+    issues_count = db.execute(select(func.count(CrawlIssue.id)).where(CrawlIssue.job_id == job.id)).scalar_one()
 
     return CrawlSnapshotAggregates(
         job_id=str(job.id),

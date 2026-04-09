@@ -20,18 +20,10 @@ ALLOWED_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
             JobStatus.cancelled,
         }
     ),
-    JobStatus.provisioning: frozenset(
-        {JobStatus.running, JobStatus.failed, JobStatus.cancelled}
-    ),
-    JobStatus.running: frozenset(
-        {JobStatus.extracting, JobStatus.failed, JobStatus.cancelled}
-    ),
-    JobStatus.extracting: frozenset(
-        {JobStatus.loading, JobStatus.failed, JobStatus.cancelled}
-    ),
-    JobStatus.loading: frozenset(
-        {JobStatus.complete, JobStatus.failed, JobStatus.cancelled}
-    ),
+    JobStatus.provisioning: frozenset({JobStatus.running, JobStatus.failed, JobStatus.cancelled}),
+    JobStatus.running: frozenset({JobStatus.extracting, JobStatus.failed, JobStatus.cancelled}),
+    JobStatus.extracting: frozenset({JobStatus.loading, JobStatus.failed, JobStatus.cancelled}),
+    JobStatus.loading: frozenset({JobStatus.complete, JobStatus.failed, JobStatus.cancelled}),
     JobStatus.complete: frozenset(),
     JobStatus.failed: frozenset({JobStatus.queued}),
     JobStatus.cancelled: frozenset(),
@@ -59,9 +51,7 @@ def transition_job_status(
     Move job to `to_status` if current status is allowed and matches `from_statuses`
     (when provided). Uses row lock (PostgreSQL). Returns True if updated.
     """
-    job = db.execute(
-        select(CrawlJob).where(CrawlJob.id == job_id).with_for_update()
-    ).scalar_one_or_none()
+    job = db.execute(select(CrawlJob).where(CrawlJob.id == job_id).with_for_update()).scalar_one_or_none()
     if job is None:
         return False
     if from_statuses is not None and job.status not in list(from_statuses):

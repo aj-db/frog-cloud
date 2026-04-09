@@ -22,11 +22,11 @@ def list_profiles(
     tenant: TenantDep,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[CrawlProfile]:
-    rows = db.execute(
-        select(CrawlProfile)
-        .where(CrawlProfile.tenant_id == tenant.id)
-        .order_by(CrawlProfile.name.asc())
-    ).scalars().all()
+    rows = (
+        db.execute(select(CrawlProfile).where(CrawlProfile.tenant_id == tenant.id).order_by(CrawlProfile.name.asc()))
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -37,9 +37,7 @@ def create_profile(
     db: Annotated[Session, Depends(get_db)],
 ) -> CrawlProfile:
     existing = db.execute(
-        select(CrawlProfile).where(
-            and_(CrawlProfile.tenant_id == tenant.id, CrawlProfile.name == body.name)
-        )
+        select(CrawlProfile).where(and_(CrawlProfile.tenant_id == tenant.id, CrawlProfile.name == body.name))
     ).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="Profile name already exists")
@@ -62,9 +60,7 @@ def get_profile(
     db: Annotated[Session, Depends(get_db)],
 ) -> CrawlProfile:
     row = db.execute(
-        select(CrawlProfile).where(
-            and_(CrawlProfile.id == profile_id, CrawlProfile.tenant_id == tenant.id)
-        )
+        select(CrawlProfile).where(and_(CrawlProfile.id == profile_id, CrawlProfile.tenant_id == tenant.id))
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -79,9 +75,7 @@ def update_profile(
     db: Annotated[Session, Depends(get_db)],
 ) -> CrawlProfile:
     row = db.execute(
-        select(CrawlProfile).where(
-            and_(CrawlProfile.id == profile_id, CrawlProfile.tenant_id == tenant.id)
-        )
+        select(CrawlProfile).where(and_(CrawlProfile.id == profile_id, CrawlProfile.tenant_id == tenant.id))
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -115,9 +109,7 @@ def delete_profile(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     row = db.execute(
-        select(CrawlProfile).where(
-            and_(CrawlProfile.id == profile_id, CrawlProfile.tenant_id == tenant.id)
-        )
+        select(CrawlProfile).where(and_(CrawlProfile.id == profile_id, CrawlProfile.tenant_id == tenant.id))
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Profile not found")

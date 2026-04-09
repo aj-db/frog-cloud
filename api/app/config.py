@@ -58,11 +58,10 @@ class Settings(BaseSettings):
     # GCE / internal control plane
     gce_zone: str | None = Field(default=None, alias="GCE_ZONE")
     gce_instance_template: str | None = Field(default=None, alias="GCE_INSTANCE_TEMPLATE")
-    gce_worker_service_account: str | None = Field(
-        default=None, alias="GCE_WORKER_SERVICE_ACCOUNT"
-    )
+    gce_worker_service_account: str | None = Field(default=None, alias="GCE_WORKER_SERVICE_ACCOUNT")
     internal_oidc_audience: str | None = Field(
-        default=None, alias="INTERNAL_OIDC_AUDIENCE",
+        default=None,
+        alias="INTERNAL_OIDC_AUDIENCE",
         description="Expected audience for Google-signed OIDC tokens on /internal/*.",
     )
 

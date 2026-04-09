@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session
 from app.auth import TenantDep
 from app.db import get_db
 from app.models import CrawlProfile, ScheduledCrawl
-from app.schemas import ScheduledCrawlCreate, ScheduledCrawlResponse, ScheduledCrawlUpdate
+from app.schemas import (
+    ScheduledCrawlCreate,
+    ScheduledCrawlResponse,
+    ScheduledCrawlUpdate,
+)
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 
@@ -41,11 +45,15 @@ def list_schedules(
     tenant: TenantDep,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[ScheduledCrawl]:
-    rows = db.execute(
-        select(ScheduledCrawl)
-        .where(ScheduledCrawl.tenant_id == tenant.id)
-        .order_by(ScheduledCrawl.created_at.desc())
-    ).scalars().all()
+    rows = (
+        db.execute(
+            select(ScheduledCrawl)
+            .where(ScheduledCrawl.tenant_id == tenant.id)
+            .order_by(ScheduledCrawl.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -62,9 +70,7 @@ def create_schedule(
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid profile_id") from e
     profile = db.execute(
-        select(CrawlProfile).where(
-            and_(CrawlProfile.id == profile_uuid, CrawlProfile.tenant_id == tenant.id)
-        )
+        select(CrawlProfile).where(and_(CrawlProfile.id == profile_uuid, CrawlProfile.tenant_id == tenant.id))
     ).scalar_one_or_none()
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -90,9 +96,7 @@ def get_schedule(
     db: Annotated[Session, Depends(get_db)],
 ) -> ScheduledCrawl:
     row = db.execute(
-        select(ScheduledCrawl).where(
-            and_(ScheduledCrawl.id == schedule_id, ScheduledCrawl.tenant_id == tenant.id)
-        )
+        select(ScheduledCrawl).where(and_(ScheduledCrawl.id == schedule_id, ScheduledCrawl.tenant_id == tenant.id))
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -107,9 +111,7 @@ def update_schedule(
     db: Annotated[Session, Depends(get_db)],
 ) -> ScheduledCrawl:
     row = db.execute(
-        select(ScheduledCrawl).where(
-            and_(ScheduledCrawl.id == schedule_id, ScheduledCrawl.tenant_id == tenant.id)
-        )
+        select(ScheduledCrawl).where(and_(ScheduledCrawl.id == schedule_id, ScheduledCrawl.tenant_id == tenant.id))
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -129,9 +131,7 @@ def update_schedule(
         except ValueError as e:
             raise HTTPException(status_code=400, detail="Invalid profile_id") from e
         profile = db.execute(
-            select(CrawlProfile).where(
-                and_(CrawlProfile.id == profile_uuid, CrawlProfile.tenant_id == tenant.id)
-            )
+            select(CrawlProfile).where(and_(CrawlProfile.id == profile_uuid, CrawlProfile.tenant_id == tenant.id))
         ).scalar_one_or_none()
         if profile is None:
             raise HTTPException(status_code=404, detail="Profile not found")
@@ -149,9 +149,7 @@ def delete_schedule(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     row = db.execute(
-        select(ScheduledCrawl).where(
-            and_(ScheduledCrawl.id == schedule_id, ScheduledCrawl.tenant_id == tenant.id)
-        )
+        select(ScheduledCrawl).where(and_(ScheduledCrawl.id == schedule_id, ScheduledCrawl.tenant_id == tenant.id))
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Schedule not found")

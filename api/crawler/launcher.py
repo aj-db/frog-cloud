@@ -28,9 +28,7 @@ def launch_worker_vm(db: Session, job_id: UUID) -> str:
     try:
         from google.cloud import compute_v1
     except ImportError as e:
-        raise RuntimeError(
-            "google-cloud-compute is not installed. Add it to requirements and pip install."
-        ) from e
+        raise RuntimeError("google-cloud-compute is not installed. Add it to requirements and pip install.") from e
 
     job = db.execute(select(CrawlJob).where(CrawlJob.id == job_id)).scalar_one_or_none()
     if job is None:
@@ -54,10 +52,7 @@ def launch_worker_vm(db: Session, job_id: UUID) -> str:
 
     client = compute_v1.InstancesClient()
     template_client = compute_v1.InstanceTemplatesClient()
-    template_url = (
-        f"projects/{settings.gcp_project_id}/global/instanceTemplates/"
-        f"{settings.gce_instance_template}"
-    )
+    template_url = f"projects/{settings.gcp_project_id}/global/instanceTemplates/{settings.gce_instance_template}"
 
     instance_name = f"sf-worker-{str(job_id).replace('-', '')[:24]}"
 
@@ -67,9 +62,7 @@ def launch_worker_vm(db: Session, job_id: UUID) -> str:
     )
     template_metadata = getattr(getattr(template, "properties", None), "metadata", None)
     metadata_by_key = {
-        item.key: item.value
-        for item in (getattr(template_metadata, "items", None) or [])
-        if getattr(item, "key", None)
+        item.key: item.value for item in (getattr(template_metadata, "items", None) or []) if getattr(item, "key", None)
     }
     metadata_by_key.update(
         {
@@ -77,9 +70,7 @@ def launch_worker_vm(db: Session, job_id: UUID) -> str:
             "frog_tenant_id": str(job.tenant_id),
         }
     )
-    metadata_items = [
-        compute_v1.Items(key=key, value=value) for key, value in metadata_by_key.items()
-    ]
+    metadata_items = [compute_v1.Items(key=key, value=value) for key, value in metadata_by_key.items()]
 
     body = compute_v1.Instance(
         name=instance_name,

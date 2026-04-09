@@ -30,7 +30,13 @@ app.add_middleware(
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["Authorization", "Content-Type", "svix-id", "svix-timestamp", "svix-signature"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "svix-id",
+        "svix-timestamp",
+        "svix-signature",
+    ],
 )
 
 app.include_router(tenants.router, prefix="/api")

@@ -22,6 +22,7 @@ from crawler.progress import set_job_error, transition_job_status, update_heartb
 
 logger = logging.getLogger(__name__)
 
+
 def _find_crawl_artifact(output_dir: Path) -> Path | None:
     """Locate .dbseospider or .seospider project after crawl."""
     dbseo = list(output_dir.rglob("*.dbseospider"))
@@ -46,9 +47,7 @@ def _run_local_job_impl(job_id: UUID) -> None:
             logger.error("Job %s not found", job_id)
             return
 
-        profile = db.execute(
-            select(CrawlProfile).where(CrawlProfile.id == job.profile_id)
-        ).scalar_one_or_none()
+        profile = db.execute(select(CrawlProfile).where(CrawlProfile.id == job.profile_id)).scalar_one_or_none()
         if profile is None:
             set_job_error(db, job_id, "Crawl profile not found")
             return
@@ -70,8 +69,13 @@ def _run_local_job_impl(job_id: UUID) -> None:
 
         output_dir = Path(tempfile.mkdtemp(prefix=f"sf_job_{job_id}_"))
         cli_path = settings.sf_cli_path
-        logger.info("Job %s: cli_path=%r, exists=%s, cwd=%s",
-                     job_id, cli_path, Path(cli_path).exists() if cli_path else "N/A", os.getcwd())
+        logger.info(
+            "Job %s: cli_path=%r, exists=%s, cwd=%s",
+            job_id,
+            cli_path,
+            Path(cli_path).exists() if cli_path else "N/A",
+            os.getcwd(),
+        )
 
         try:
             from screamingfrog.cli.exports import start_crawl

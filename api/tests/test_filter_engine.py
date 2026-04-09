@@ -15,7 +15,9 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine, select, func, text
 from sqlalchemy.orm import Session
 
-from app.models import Base, CrawlIssue, CrawlPage, CrawlJob, CrawlProfile, Tenant, IssueSeverity, JobStatus, JobExecutor
+from app.models import (
+    CrawlPage,
+)
 from app.schemas import PageFilterRule
 from app.routers.results import (
     _rule_to_clause,
@@ -36,6 +38,7 @@ from app.routers.results import (
 # Unit tests (no database required)
 # ---------------------------------------------------------------------------
 
+
 class TestParseFilterRules:
     def test_none_returns_empty(self):
         assert _parse_filter_rules(None) == []
@@ -52,10 +55,12 @@ class TestParseFilterRules:
         assert rules[0].value == "blog"
 
     def test_multiple_rules(self):
-        raw = json.dumps([
-            {"field": "address", "op": "contains", "value": "blog"},
-            {"field": "status_code", "op": "eq", "value": "200"},
-        ])
+        raw = json.dumps(
+            [
+                {"field": "address", "op": "contains", "value": "blog"},
+                {"field": "status_code", "op": "eq", "value": "200"},
+            ]
+        )
         rules = _parse_filter_rules(raw)
         assert len(rules) == 2
 
@@ -159,7 +164,14 @@ class TestFieldRegistryCompleteness:
     def test_all_model_columns_represented(self):
         """Every column on CrawlPage that is a data column (not id/job_id/timestamps/extra)
         should be in FILTERABLE_FIELDS or explicitly excluded."""
-        skip = {"id", "job_id", "created_at", "updated_at", "extra_metadata", "metadata"}
+        skip = {
+            "id",
+            "job_id",
+            "created_at",
+            "updated_at",
+            "extra_metadata",
+            "metadata",
+        }
         model_cols = {c.key for c in CrawlPage.__table__.columns} - skip
         registry_keys = set(FILTERABLE_FIELDS.keys())
         missing = model_cols - registry_keys
@@ -191,37 +203,63 @@ def pg_session():
 
 def _insert_via_sql(db: Session, tenant_id, profile_id, job_id, pages_data, issues_data):
     """Insert seed data via raw SQL to bypass ORM column mismatches."""
-    db.execute(text(
-        "INSERT INTO tenants (id, clerk_org_id, name, plan, settings) "
-        "VALUES (:id, :clerk_org_id, :name, 'free', '{}')"
-    ), {"id": str(tenant_id), "clerk_org_id": f"org_test_{uuid4().hex[:8]}", "name": "Test Org"})
+    db.execute(
+        text(
+            "INSERT INTO tenants (id, clerk_org_id, name, plan, settings) "
+            "VALUES (:id, :clerk_org_id, :name, 'free', '{}')"
+        ),
+        {
+            "id": str(tenant_id),
+            "clerk_org_id": f"org_test_{uuid4().hex[:8]}",
+            "name": "Test Org",
+        },
+    )
 
-    db.execute(text(
-        "INSERT INTO crawl_profiles (id, tenant_id, name, config_path) "
-        "VALUES (:id, :tid, :name, :cfg)"
-    ), {"id": str(profile_id), "tid": str(tenant_id), "name": "Default", "cfg": "/cfg"})
+    db.execute(
+        text("INSERT INTO crawl_profiles (id, tenant_id, name, config_path) VALUES (:id, :tid, :name, :cfg)"),
+        {
+            "id": str(profile_id),
+            "tid": str(tenant_id),
+            "name": "Default",
+            "cfg": "/cfg",
+        },
+    )
 
-    db.execute(text(
-        "INSERT INTO crawl_jobs (id, tenant_id, profile_id, target_url, status, executor, urls_crawled) "
-        "VALUES (:id, :tid, :pid, :url, 'complete', 'local', 0)"
-    ), {"id": str(job_id), "tid": str(tenant_id), "pid": str(profile_id), "url": "https://example.com"})
+    db.execute(
+        text(
+            "INSERT INTO crawl_jobs (id, tenant_id, profile_id, target_url, status, executor, urls_crawled) "
+            "VALUES (:id, :tid, :pid, :url, 'complete', 'local', 0)"
+        ),
+        {
+            "id": str(job_id),
+            "tid": str(tenant_id),
+            "pid": str(profile_id),
+            "url": "https://example.com",
+        },
+    )
 
     for p in pages_data:
-        db.execute(text(
-            "INSERT INTO crawl_pages "
-            "(id, job_id, address, status_code, title, indexability, content_type, "
-            "word_count, crawl_depth, response_time, size_bytes, in_sitemap, "
-            "inlinks, outlinks, meta_description, h1, redirect_url, metadata) "
-            "VALUES (:id, :jid, :address, :status_code, :title, :indexability, :content_type, "
-            ":word_count, :crawl_depth, :response_time, :size_bytes, :in_sitemap, "
-            ":inlinks, :outlinks, :meta_description, :h1, :redirect_url, :metadata)"
-        ), {**p, "jid": str(job_id), "metadata": "{}"})
+        db.execute(
+            text(
+                "INSERT INTO crawl_pages "
+                "(id, job_id, address, status_code, title, indexability, content_type, "
+                "word_count, crawl_depth, response_time, size_bytes, in_sitemap, "
+                "inlinks, outlinks, meta_description, h1, redirect_url, metadata) "
+                "VALUES (:id, :jid, :address, :status_code, :title, :indexability, :content_type, "
+                ":word_count, :crawl_depth, :response_time, :size_bytes, :in_sitemap, "
+                ":inlinks, :outlinks, :meta_description, :h1, :redirect_url, :metadata)"
+            ),
+            {**p, "jid": str(job_id), "metadata": "{}"},
+        )
 
     for i in issues_data:
-        db.execute(text(
-            "INSERT INTO crawl_issues (id, job_id, page_id, issue_type, severity) "
-            "VALUES (:id, :jid, :pid, :issue_type, :severity)"
-        ), {**i, "jid": str(job_id)})
+        db.execute(
+            text(
+                "INSERT INTO crawl_issues (id, job_id, page_id, issue_type, severity) "
+                "VALUES (:id, :jid, :pid, :issue_type, :severity)"
+            ),
+            {**i, "jid": str(job_id)},
+        )
 
     db.flush()
 
@@ -235,40 +273,117 @@ def seed(pg_session):
     page_ids = [uuid4() for _ in range(5)]
 
     pages_data = [
-        dict(id=str(page_ids[0]), address="https://example.com/", status_code=200,
-             title="Home Page", indexability="Indexable", content_type="text/html",
-             word_count=500, crawl_depth=0, response_time=120.5, size_bytes=15000,
-             in_sitemap=True, inlinks=10, outlinks=5,
-             meta_description="Welcome to example", h1="Welcome", redirect_url=None),
-        dict(id=str(page_ids[1]), address="https://example.com/about", status_code=200,
-             title="About Us", indexability="Indexable", content_type="text/html",
-             word_count=300, crawl_depth=1, response_time=95.0, size_bytes=8000,
-             in_sitemap=True, inlinks=5, outlinks=3,
-             meta_description="About our company", h1="About", redirect_url=None),
-        dict(id=str(page_ids[2]), address="https://example.com/404-page", status_code=404,
-             title="Not Found", indexability="Non-Indexable", content_type="text/html",
-             word_count=50, crawl_depth=2, response_time=45.0, size_bytes=2000,
-             in_sitemap=False, inlinks=0, outlinks=0,
-             meta_description=None, h1=None, redirect_url=None),
-        dict(id=str(page_ids[3]), address="https://example.com/redirect", status_code=301,
-             title=None, indexability="Non-Indexable", content_type=None,
-             word_count=None, crawl_depth=1, response_time=30.0, size_bytes=0,
-             in_sitemap=None, inlinks=2, outlinks=1,
-             meta_description=None, h1=None, redirect_url="https://example.com/about"),
-        dict(id=str(page_ids[4]), address="https://example.com/blog/post-1", status_code=200,
-             title="Blog Post 1", indexability="Indexable", content_type="text/html",
-             word_count=1200, crawl_depth=2, response_time=200.0, size_bytes=25000,
-             in_sitemap=True, inlinks=8, outlinks=12,
-             meta_description="First blog post", h1="Blog Post 1", redirect_url=None),
+        dict(
+            id=str(page_ids[0]),
+            address="https://example.com/",
+            status_code=200,
+            title="Home Page",
+            indexability="Indexable",
+            content_type="text/html",
+            word_count=500,
+            crawl_depth=0,
+            response_time=120.5,
+            size_bytes=15000,
+            in_sitemap=True,
+            inlinks=10,
+            outlinks=5,
+            meta_description="Welcome to example",
+            h1="Welcome",
+            redirect_url=None,
+        ),
+        dict(
+            id=str(page_ids[1]),
+            address="https://example.com/about",
+            status_code=200,
+            title="About Us",
+            indexability="Indexable",
+            content_type="text/html",
+            word_count=300,
+            crawl_depth=1,
+            response_time=95.0,
+            size_bytes=8000,
+            in_sitemap=True,
+            inlinks=5,
+            outlinks=3,
+            meta_description="About our company",
+            h1="About",
+            redirect_url=None,
+        ),
+        dict(
+            id=str(page_ids[2]),
+            address="https://example.com/404-page",
+            status_code=404,
+            title="Not Found",
+            indexability="Non-Indexable",
+            content_type="text/html",
+            word_count=50,
+            crawl_depth=2,
+            response_time=45.0,
+            size_bytes=2000,
+            in_sitemap=False,
+            inlinks=0,
+            outlinks=0,
+            meta_description=None,
+            h1=None,
+            redirect_url=None,
+        ),
+        dict(
+            id=str(page_ids[3]),
+            address="https://example.com/redirect",
+            status_code=301,
+            title=None,
+            indexability="Non-Indexable",
+            content_type=None,
+            word_count=None,
+            crawl_depth=1,
+            response_time=30.0,
+            size_bytes=0,
+            in_sitemap=None,
+            inlinks=2,
+            outlinks=1,
+            meta_description=None,
+            h1=None,
+            redirect_url="https://example.com/about",
+        ),
+        dict(
+            id=str(page_ids[4]),
+            address="https://example.com/blog/post-1",
+            status_code=200,
+            title="Blog Post 1",
+            indexability="Indexable",
+            content_type="text/html",
+            word_count=1200,
+            crawl_depth=2,
+            response_time=200.0,
+            size_bytes=25000,
+            in_sitemap=True,
+            inlinks=8,
+            outlinks=12,
+            meta_description="First blog post",
+            h1="Blog Post 1",
+            redirect_url=None,
+        ),
     ]
 
     issues_data = [
-        dict(id=str(uuid4()), pid=str(page_ids[2]),
-             issue_type="missing_title", severity="error"),
-        dict(id=str(uuid4()), pid=str(page_ids[2]),
-             issue_type="broken_link", severity="warning"),
-        dict(id=str(uuid4()), pid=str(page_ids[3]),
-             issue_type="redirect_chain", severity="warning"),
+        dict(
+            id=str(uuid4()),
+            pid=str(page_ids[2]),
+            issue_type="missing_title",
+            severity="error",
+        ),
+        dict(
+            id=str(uuid4()),
+            pid=str(page_ids[2]),
+            issue_type="broken_link",
+            severity="warning",
+        ),
+        dict(
+            id=str(uuid4()),
+            pid=str(page_ids[3]),
+            issue_type="redirect_chain",
+            severity="warning",
+        ),
     ]
 
     _insert_via_sql(db, tenant_id, profile_id, job_id, pages_data, issues_data)

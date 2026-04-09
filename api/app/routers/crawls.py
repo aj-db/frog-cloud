@@ -65,9 +65,7 @@ def create_crawl(
         raise HTTPException(status_code=400, detail="Invalid profile_id") from e
 
     profile = db.execute(
-        select(CrawlProfile).where(
-            and_(CrawlProfile.id == profile_uuid, CrawlProfile.tenant_id == tenant.id)
-        )
+        select(CrawlProfile).where(and_(CrawlProfile.id == profile_uuid, CrawlProfile.tenant_id == tenant.id))
     ).scalar_one_or_none()
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -100,9 +98,7 @@ def list_crawls(
     target_url: Annotated[str | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
 ) -> CrawlJobListEnvelope:
-    q = select(CrawlJob).where(CrawlJob.tenant_id == tenant.id).order_by(
-        CrawlJob.created_at.desc(), CrawlJob.id.desc()
-    )
+    q = select(CrawlJob).where(CrawlJob.tenant_id == tenant.id).order_by(CrawlJob.created_at.desc(), CrawlJob.id.desc())
     if target_url:
         q = q.where(CrawlJob.target_url == target_url)
     if status:
@@ -147,7 +143,11 @@ def get_crawl(
     return job
 
 
-@router.post("/{job_id}/retry", response_model=CrawlJobCreateAccepted, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{job_id}/retry",
+    response_model=CrawlJobCreateAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def retry_crawl(
     job_id: UUID,
     request: Request,
@@ -204,7 +204,11 @@ def delete_crawl(
     db.commit()
 
 
-@router.post("/{job_id}/duplicate", response_model=CrawlJobCreateAccepted, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{job_id}/duplicate",
+    response_model=CrawlJobCreateAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def duplicate_crawl(
     job_id: UUID,
     request: Request,

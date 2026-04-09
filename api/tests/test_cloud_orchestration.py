@@ -57,11 +57,11 @@ def _request(url: str, headers: list[tuple[str, str]] | None = None) -> Request:
         "path": parsed.path,
         "raw_path": parsed.path.encode("utf-8"),
         "query_string": parsed.query.encode("utf-8"),
-        "headers": [
-            (name.lower().encode("utf-8"), value.encode("utf-8"))
-            for name, value in (headers or [])
-        ],
-        "server": (parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)),
+        "headers": [(name.lower().encode("utf-8"), value.encode("utf-8")) for name, value in (headers or [])],
+        "server": (
+            parsed.hostname,
+            parsed.port or (443 if parsed.scheme == "https" else 80),
+        ),
         "client": ("testclient", 50000),
         "root_path": "",
         "app": _FakeApp(),
@@ -93,7 +93,9 @@ def test_settings_accept_cloud_runtime_aliases(monkeypatch):
     )
 
 
-def test_verify_google_oidc_falls_back_to_request_url_when_audience_missing(monkeypatch):
+def test_verify_google_oidc_falls_back_to_request_url_when_audience_missing(
+    monkeypatch,
+):
     captured: dict[str, str] = {}
 
     monkeypatch.setattr(

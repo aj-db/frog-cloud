@@ -139,7 +139,9 @@ def test_wait_for_crawl_process_updates_heartbeats_until_exit(monkeypatch):
     monkeypatch.setattr(
         worker,
         "update_heartbeat",
-        lambda db_arg, job_id_arg, progress_pct=None, urls_crawled=None, status_message=None: heartbeats.append((db_arg, job_id_arg)),
+        lambda db_arg, job_id_arg, progress_pct=None, urls_crawled=None, status_message=None: heartbeats.append(
+            (db_arg, job_id_arg)
+        ),
     )
 
     returncode, stopped_due_to_limit = worker._wait_for_crawl_process(

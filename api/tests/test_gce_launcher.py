@@ -107,9 +107,7 @@ def test_launch_worker_vm_passes_template_on_insert_request(monkeypatch):
         "projects/fox-seo-sandbox/global/instanceTemplates/staging-frog-worker-template"
     )
     assert request.instance_resource.source_instance_template is None
-    metadata = {
-        item.key: item.value for item in request.instance_resource.metadata.items
-    }
+    metadata = {item.key: item.value for item in request.instance_resource.metadata.items}
     assert metadata["enable-oslogin"] == "TRUE"
     assert metadata["startup-script"] == "echo bootstrap"
     assert metadata["frog_job_id"] == str(job_id)

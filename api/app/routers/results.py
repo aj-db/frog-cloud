@@ -46,37 +46,55 @@ SORT_FIELDS = frozenset({"address", "status_code", "word_count", "response_time"
 
 FILTERABLE_FIELDS: dict[str, tuple[str, str]] = {
     # field_key -> (CrawlPage attribute, type)
-    "address":                ("address", "string"),
-    "title":                  ("title", "string"),
-    "meta_description":       ("meta_description", "string"),
-    "h1":                     ("h1", "string"),
-    "canonical":              ("canonical", "string"),
+    "address": ("address", "string"),
+    "title": ("title", "string"),
+    "meta_description": ("meta_description", "string"),
+    "h1": ("h1", "string"),
+    "canonical": ("canonical", "string"),
     "canonical_link_element": ("canonical_link_element", "string"),
-    "meta_robots":            ("meta_robots", "string"),
-    "x_robots_tag":           ("x_robots_tag", "string"),
-    "pagination_status":      ("pagination_status", "string"),
-    "content_type":           ("content_type", "string"),
-    "http_version":           ("http_version", "string"),
-    "redirect_url":           ("redirect_url", "string"),
-    "indexability":           ("indexability", "string"),
-    "status_code":            ("status_code", "number"),
-    "word_count":             ("word_count", "number"),
-    "crawl_depth":            ("crawl_depth", "number"),
-    "response_time":          ("response_time", "number"),
-    "size_bytes":             ("size_bytes", "number"),
-    "inlinks":                ("inlinks", "number"),
-    "outlinks":               ("outlinks", "number"),
-    "link_score":             ("link_score", "number"),
-    "in_sitemap":             ("in_sitemap", "boolean"),
+    "meta_robots": ("meta_robots", "string"),
+    "x_robots_tag": ("x_robots_tag", "string"),
+    "pagination_status": ("pagination_status", "string"),
+    "content_type": ("content_type", "string"),
+    "http_version": ("http_version", "string"),
+    "redirect_url": ("redirect_url", "string"),
+    "indexability": ("indexability", "string"),
+    "status_code": ("status_code", "number"),
+    "word_count": ("word_count", "number"),
+    "crawl_depth": ("crawl_depth", "number"),
+    "response_time": ("response_time", "number"),
+    "size_bytes": ("size_bytes", "number"),
+    "inlinks": ("inlinks", "number"),
+    "outlinks": ("outlinks", "number"),
+    "link_score": ("link_score", "number"),
+    "in_sitemap": ("in_sitemap", "boolean"),
 }
 
-STRING_OPS = frozenset({
-    "contains", "not_contains", "equals", "not_equals",
-    "starts_with", "ends_with", "is_empty", "is_not_empty", "regex",
-})
-NUMBER_OPS = frozenset({
-    "eq", "neq", "gt", "gte", "lt", "lte", "is_empty", "is_not_empty",
-})
+STRING_OPS = frozenset(
+    {
+        "contains",
+        "not_contains",
+        "equals",
+        "not_equals",
+        "starts_with",
+        "ends_with",
+        "is_empty",
+        "is_not_empty",
+        "regex",
+    }
+)
+NUMBER_OPS = frozenset(
+    {
+        "eq",
+        "neq",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "is_empty",
+        "is_not_empty",
+    }
+)
 BOOLEAN_OPS = frozenset({"is_true", "is_false", "is_empty"})
 
 PSEUDO_FIELDS = frozenset({"has_issues", "issue_type"})
@@ -171,9 +189,7 @@ def _boolean_clause(col, op: str):
 
 def _pseudo_field_clause(rule: PageFilterRule, job_id: UUID):
     if rule.field == "has_issues":
-        sub = exists().where(
-            and_(CrawlIssue.job_id == job_id, CrawlIssue.page_id == CrawlPage.id)
-        )
+        sub = exists().where(and_(CrawlIssue.job_id == job_id, CrawlIssue.page_id == CrawlPage.id))
         if rule.op == "is_true":
             return sub
         return ~sub
@@ -245,7 +261,10 @@ def _keyset_filter(ref: CrawlPage, sort: str, dir: str):
     if sort == "address":
         ra = ref.address or ""
         if dir == "asc":
-            return or_(CrawlPage.address > ra, and_(CrawlPage.address == ra, CrawlPage.id > ref.id))
+            return or_(
+                CrawlPage.address > ra,
+                and_(CrawlPage.address == ra, CrawlPage.id > ref.id),
+            )
         return or_(CrawlPage.address < ra, and_(CrawlPage.address == ra, CrawlPage.id < ref.id))
 
     if sort in ("status_code", "word_count", "crawl_depth"):
@@ -431,13 +450,17 @@ def list_issues(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[CrawlIssue]:
     _job_for_tenant(db, tenant.id, job_id)
-    rows = db.execute(
-        select(CrawlIssue)
-        .where(CrawlIssue.job_id == job_id)
-        .order_by(CrawlIssue.severity.asc(), CrawlIssue.created_at.asc())
-        .offset(offset)
-        .limit(limit)
-    ).scalars().all()
+    rows = (
+        db.execute(
+            select(CrawlIssue)
+            .where(CrawlIssue.job_id == job_id)
+            .order_by(CrawlIssue.severity.asc(), CrawlIssue.created_at.asc())
+            .offset(offset)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
@@ -450,13 +473,17 @@ def list_links(
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[CrawlLink]:
     _job_for_tenant(db, tenant.id, job_id)
-    rows = db.execute(
-        select(CrawlLink)
-        .where(CrawlLink.job_id == job_id)
-        .order_by(CrawlLink.source_url.asc())
-        .offset(offset)
-        .limit(limit)
-    ).scalars().all()
+    rows = (
+        db.execute(
+            select(CrawlLink)
+            .where(CrawlLink.job_id == job_id)
+            .order_by(CrawlLink.source_url.asc())
+            .offset(offset)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
     return list(rows)
 
 
