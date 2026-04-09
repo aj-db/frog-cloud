@@ -69,6 +69,18 @@ def _queued_gce_job(created_at: datetime) -> CrawlJob:
     )
 
 
+def _job_with_status(status: JobStatus) -> CrawlJob:
+    return CrawlJob(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        profile_id=uuid4(),
+        target_url="https://example.com",
+        executor=JobExecutor.gce,
+        status=status,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
 def test_claim_next_gce_job_transitions_a_queued_gce_job_to_running():
     job = _queued_gce_job(datetime.now(timezone.utc) - timedelta(minutes=5))
     session = _FakeSession(job)
@@ -278,3 +290,43 @@ def test_run_crawl_cli_does_not_raise_when_limit_stop_returns_nonzero(monkeypatc
         config=None,
         max_urls=200,
     )
+
+
+def test_reconcile_extractor_exit_marks_loading_job_failed(monkeypatch):
+    job = _job_with_status(JobStatus.loading)
+    session = _FakeSession(job)
+    errors: list[tuple[object, object, str]] = []
+
+    monkeypatch.setattr(
+        worker,
+        "set_job_error",
+        lambda db_arg, job_id_arg, message: errors.append((db_arg, job_id_arg, message)),
+    )
+
+    outcome = worker._reconcile_extractor_exit(session, job.id, exitcode=-11)
+
+    assert outcome is job
+    assert errors == [
+        (
+            session,
+            job.id,
+            "Result extraction crashed before completion (exit -11). Partial results may exist; retry this crawl.",
+        )
+    ]
+
+
+def test_reconcile_extractor_exit_preserves_completed_job_after_crash(monkeypatch):
+    job = _job_with_status(JobStatus.complete)
+    session = _FakeSession(job)
+    errors: list[tuple[object, object, str]] = []
+
+    monkeypatch.setattr(
+        worker,
+        "set_job_error",
+        lambda db_arg, job_id_arg, message: errors.append((db_arg, job_id_arg, message)),
+    )
+
+    outcome = worker._reconcile_extractor_exit(session, job.id, exitcode=-11)
+
+    assert outcome is job
+    assert errors == []

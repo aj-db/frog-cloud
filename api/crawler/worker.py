@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import multiprocessing
 import os
 import re
 import signal
@@ -80,6 +81,82 @@ def _upload_dir_to_gcs(prefix: str, local_dir: Path, bucket_name: str) -> None:
 def _session_factory() -> sessionmaker[Session]:
     engine = get_engine()
     return sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
+def _extract_job_in_subprocess(
+    job_id: UUID,
+    tenant_id: UUID,
+    artifact_path: str,
+    cli_path: str | None,
+) -> None:
+    db = _session_factory()()
+    try:
+        extract_crawl_to_postgres(
+            db,
+            job_id=job_id,
+            tenant_id=tenant_id,
+            artifact_path=Path(artifact_path),
+            cli_path=cli_path,
+        )
+    finally:
+        db.close()
+
+
+def _run_extract_job_in_subprocess(
+    job_id: UUID,
+    tenant_id: UUID,
+    artifact_path: Path,
+    cli_path: str | None,
+) -> int:
+    ctx = multiprocessing.get_context("spawn")
+    process = ctx.Process(
+        target=_extract_job_in_subprocess,
+        args=(job_id, tenant_id, str(artifact_path), cli_path),
+        name=f"frog-extract-{job_id}",
+    )
+    process.daemon = False
+    process.start()
+    process.join()
+    return 1 if process.exitcode is None else process.exitcode
+
+
+def _reconcile_extractor_exit(
+    db: Session,
+    job_id: UUID,
+    *,
+    exitcode: int,
+) -> CrawlJob | None:
+    job = db.execute(select(CrawlJob).where(CrawlJob.id == job_id)).scalar_one_or_none()
+    if job is None:
+        logger.error("Job %s missing after extractor exit", job_id)
+        return None
+
+    if job.status == JobStatus.complete:
+        if exitcode != 0:
+            logger.warning(
+                "Extractor subprocess for job %s exited with %s after job completed",
+                job_id,
+                exitcode,
+            )
+        return job
+
+    if job.status in (JobStatus.failed, JobStatus.cancelled):
+        return job
+
+    if exitcode != 0:
+        set_job_error(
+            db,
+            job_id,
+            f"Result extraction crashed before completion (exit {exitcode}). Partial results may exist; retry this crawl.",
+        )
+    else:
+        set_job_error(
+            db,
+            job_id,
+            "Result extraction exited without completing the crawl. Partial results may exist; retry this crawl.",
+        )
+
+    return db.execute(select(CrawlJob).where(CrawlJob.id == job_id)).scalar_one_or_none()
 
 
 def _poll_interval_seconds() -> float:
@@ -515,13 +592,15 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
 
         update_heartbeat(db, job_id, status_message="Extracting results into database…")
         logger.info("Found crawl artifact for job %s at %s", job_id, artifact)
-        extract_crawl_to_postgres(
-            db,
-            job_id=job_id,
-            tenant_id=job.tenant_id,
-            artifact_path=artifact,
-            cli_path=os.environ.get("SF_CLI_PATH"),
+        extract_exitcode = _run_extract_job_in_subprocess(
+            job_id,
+            job.tenant_id,
+            artifact,
+            os.environ.get("SF_CLI_PATH"),
         )
+        job = _reconcile_extractor_exit(db, job_id, exitcode=extract_exitcode)
+        if job is None or job.status != JobStatus.complete:
+            return
 
         if bucket:
             prefix = f"tenants/{job.tenant_id}/jobs/{job_id}/artifacts"
