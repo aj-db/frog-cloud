@@ -60,6 +60,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify Packer auth inputs
+        env:
+          PACKER_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GCP_PACKER_SERVICE_ACCOUNT_EMAIL }}
+        run: |
+          if [ -z "${PACKER_SERVICE_ACCOUNT_EMAIL}" ]; then
+            echo "Missing required environment secret GCP_PACKER_SERVICE_ACCOUNT_EMAIL for ${DEPLOY_ENVIRONMENT}."
+            exit 1
+          fi
+
       - id: auth
         uses: google-github-actions/auth@v2
         with:
