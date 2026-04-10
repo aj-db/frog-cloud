@@ -220,6 +220,17 @@ The deployed cloud pieces connect like this:
 5. Terraform provisions the shared infrastructure.
 6. Packer builds the worker image used by the GCE template.
 
+## Worker Release Path
+
+Worker releases now follow a separate path from the Cloud Run API deploy:
+
+- `main` pushes that change worker runtime or worker rollout files trigger `.github/workflows/packer-build.yml`
+- that workflow builds a new `frog-worker-${sha}` image and rolls staging's persistent worker forward through Terraform
+- the persistent worker now exposes `worker_source_image` and `worker_release_sha` in instance metadata
+- the startup script logs the resolved worker release and service-active markers during bootstrap
+
+Use `docs/runbooks/worker-rollout.md` for the staging rollout flow, verification checklist, and rollback procedure.
+
 ## Frontend Monitoring Notes
 
 The monitoring UX now supports the full verified path:
@@ -325,5 +336,5 @@ This document explains the current verified architecture and data flow.
 If needed, the next useful companion docs would be:
 
 1. a deployment runbook for restarting the staging-backed frontend and API verification flow
-2. a worker operations runbook for license, image, and VM troubleshooting
+2. a worker operations runbook for license, image, and VM troubleshooting, now documented in `docs/runbooks/worker-rollout.md`
 3. an incident/debug playbook for stuck jobs, stale heartbeats, or empty frontend lists

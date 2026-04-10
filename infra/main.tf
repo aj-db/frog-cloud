@@ -40,6 +40,8 @@ locals {
     sf_license_secret_id   = google_secret_manager_secret.sf_license_key.secret_id
     cloud_sql_connection   = module.cloud_sql.instance_connection_name
     gcs_bucket             = module.gcs.bucket_name
+    worker_release_sha     = var.worker_release_sha
+    worker_source_image    = var.worker_source_image
   })
 }
 
@@ -389,6 +391,8 @@ resource "google_compute_instance" "persistent_worker" {
     enable-oslogin    = "TRUE"
     startup-script    = local.worker_startup_script
     gce_dispatch_mode = "persistent"
+    worker_release_sha = trimspace(var.worker_release_sha) != "" ? var.worker_release_sha : "unknown"
+    worker_source_image = var.worker_source_image
   }
 
   tags = ["frog-worker", "https-server"]

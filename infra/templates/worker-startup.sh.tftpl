@@ -9,9 +9,13 @@ DATABASE_URL_SECRET_ID="${database_url_secret_id}"
 SF_LICENSE_SECRET_ID="${sf_license_secret_id}"
 CLOUD_SQL_CONNECTION="${cloud_sql_connection}"
 GCS_BUCKET_NAME="${gcs_bucket}"
+WORKER_SOURCE_IMAGE="${worker_source_image}"
+EXPECTED_WORKER_RELEASE_SHA="${worker_release_sha}"
 FROG_HOME="/home/frogworker/.ScreamingFrogSEOSpider"
 WORKER_ENV_DIR="/etc/frog"
 WORKER_ENV_FILE="$WORKER_ENV_DIR/worker.env"
+WORKER_RELEASE_FILE="/opt/frog/WORKER_RELEASE_SHA"
+WORKER_IMAGE_NAME_FILE="/opt/frog/WORKER_IMAGE_NAME"
 
 echo "Starting Frog worker bootstrap"
 
@@ -81,6 +85,21 @@ if [ -z "$GCE_DISPATCH_MODE" ]; then
   GCE_DISPATCH_MODE="ephemeral"
 fi
 
+WORKER_RELEASE_SHA="$EXPECTED_WORKER_RELEASE_SHA"
+if [ -z "$WORKER_RELEASE_SHA" ] && [ -r "$WORKER_RELEASE_FILE" ]; then
+  WORKER_RELEASE_SHA="$(tr -d '\n' < "$WORKER_RELEASE_FILE")"
+fi
+if [ -z "$WORKER_RELEASE_SHA" ]; then
+  WORKER_RELEASE_SHA="unknown"
+fi
+
+WORKER_IMAGE_NAME="unknown"
+if [ -r "$WORKER_IMAGE_NAME_FILE" ]; then
+  WORKER_IMAGE_NAME="$(tr -d '\n' < "$WORKER_IMAGE_NAME_FILE")"
+fi
+
+echo "Worker release resolved to $WORKER_RELEASE_SHA from image $WORKER_SOURCE_IMAGE (baked image name: $WORKER_IMAGE_NAME)"
+
 cat > "$WORKER_ENV_FILE" <<EOF
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
 HOME=/home/frogworker
@@ -90,6 +109,9 @@ SF_CLI_PATH=$SF_CLI_PATH
 JAVA_HOME=$JAVA_HOME
 PYTHONUNBUFFERED=1
 GCE_DISPATCH_MODE=$GCE_DISPATCH_MODE
+WORKER_RELEASE_SHA=$WORKER_RELEASE_SHA
+WORKER_SOURCE_IMAGE=$WORKER_SOURCE_IMAGE
+WORKER_IMAGE_NAME=$WORKER_IMAGE_NAME
 EOF
 chmod 0600 "$WORKER_ENV_FILE"
 
@@ -123,7 +145,7 @@ User=frogworker
 WorkingDirectory=/opt/frog/app
 EnvironmentFile=$WORKER_ENV_FILE
 ExecStartPre=/bin/bash -lc 'for attempt in \$(seq 1 30); do [ -S "/cloudsql/$CLOUD_SQL_CONNECTION/.s.PGSQL.5432" ] && exit 0; sleep 2; done; echo "Cloud SQL proxy socket did not come up"; exit 1'
-ExecStart=/opt/frog/venv/bin/python -m crawler.worker
+ExecStart=/bin/bash -lc 'echo "Starting frog-worker release \$${WORKER_RELEASE_SHA:-unknown} from image \$${WORKER_SOURCE_IMAGE:-unknown} (baked image name \$${WORKER_IMAGE_NAME:-unknown})"; exec /opt/frog/venv/bin/python -m crawler.worker'
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:/var/log/frog/worker.log
@@ -137,3 +159,6 @@ systemctl daemon-reload
 systemctl enable --now cloud-sql-proxy.service frog-worker.service
 systemctl is-active --quiet cloud-sql-proxy.service
 systemctl is-active --quiet frog-worker.service
+echo "cloud-sql-proxy.service active: $(systemctl is-active cloud-sql-proxy.service)"
+echo "frog-worker.service active: $(systemctl is-active frog-worker.service)"
+echo "Worker bootstrap complete for release $WORKER_RELEASE_SHA"

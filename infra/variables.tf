@@ -117,6 +117,12 @@ variable "worker_source_image" {
   type        = string
 }
 
+variable "worker_release_sha" {
+  description = "Source commit SHA stamped into worker startup metadata and logs. Empty falls back to the image-baked release file."
+  type        = string
+  default     = ""
+}
+
 variable "gce_dispatch_mode" {
   description = "How GCE jobs are dispatched: ephemeral per-job VMs or a persistent licensed worker."
   type        = string
