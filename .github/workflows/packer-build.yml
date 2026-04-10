@@ -78,33 +78,39 @@ jobs:
         working-directory: infra/packer
         run: packer init worker.pkr.hcl
 
+      - name: Resolve build inputs
+        run: |
+          set -euo pipefail
+
+          DEB_URI="${DEFAULT_DEB_URI}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            DEB_URI="${INPUT_DEB_URI:-${DEFAULT_DEB_URI}}"
+          fi
+
+          if [ -z "${DEB_URI}" ]; then
+            echo "Missing deb URI: set SCREAMING_FROG_DEB_GS_URI (path triggers) or pass workflow input."
+            exit 1
+          fi
+
+          ZONE="${INPUT_ZONE:-us-central1-a}"
+          IMAGE_NAME="frog-worker-${GITHUB_SHA}"
+
+          {
+            echo "DEB_URI=${DEB_URI}"
+            echo "ZONE=${ZONE}"
+            echo "IMAGE_NAME=${IMAGE_NAME}"
+          } >> "${GITHUB_ENV}"
+
       - name: Validate template
         working-directory: infra/packer
-        run: packer validate worker.pkr.hcl
+        run: |
+          packer validate             -var=project_id="${GCP_PROJECT_ID}"             -var=zone="${ZONE}"             -var=image_version="${GITHUB_SHA}"             -var=screaming_frog_deb_gs_uri="${DEB_URI}"             worker.pkr.hcl
 
       - name: Build image
         working-directory: infra/packer
         run: |
           set -euo pipefail
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            DEB_URI="${INPUT_DEB_URI}"
-          else
-            DEB_URI="${DEFAULT_DEB_URI}"
-          fi
-          if [ -z "${DEB_URI}" ]; then
-            echo "Missing deb URI: set SCREAMING_FROG_DEB_GS_URI (path triggers) or pass workflow input."
-            exit 1
-          fi
-          ZONE="${INPUT_ZONE:-us-central1-a}"
-          IMAGE_NAME="frog-worker-${GITHUB_SHA}"
-          packer build \
-            -var=project_id="${GCP_PROJECT_ID}" \
-            -var=zone="${ZONE}" \
-            -var=image_version="${GITHUB_SHA}" \
-            -var=screaming_frog_deb_gs_uri="${DEB_URI}" \
-            worker.pkr.hcl
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> "${GITHUB_ENV}"
-
+          packer build             -var=project_id="${GCP_PROJECT_ID}"             -var=zone="${ZONE}"             -var=image_version="${GITHUB_SHA}"             -var=screaming_frog_deb_gs_uri="${DEB_URI}"             worker.pkr.hcl
       - id: image
         name: Resolve image reference
         run: |

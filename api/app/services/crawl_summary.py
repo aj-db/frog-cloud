@@ -76,10 +76,7 @@ def _status_code_counts(db: Session, job_id: UUID) -> list[ExactStatusCodeCount]
         .group_by(CrawlPage.status_code)
         .order_by(null_rank.asc(), CrawlPage.status_code.asc())
     ).all()
-    return [
-        ExactStatusCodeCount(status_code=row.status_code, count=row.cnt)
-        for row in rows
-    ]
+    return [ExactStatusCodeCount(status_code=row.status_code, count=row.cnt) for row in rows]
 
 
 def _indexability_distribution(db: Session, job_id: UUID) -> IndexabilityDistribution:

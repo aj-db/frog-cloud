@@ -210,11 +210,7 @@ def test_extract_crawl_to_postgres_derives_status_code_issues(monkeypatch, tmp_p
         cli_path=None,
     )
 
-    issue_rows = [
-        rows
-        for model, rows in db.bulk_insert_calls
-        if model is CrawlIssue
-    ]
+    issue_rows = [rows for model, rows in db.bulk_insert_calls if model is CrawlIssue]
 
     assert len(issue_rows) == 1
     issue_map = {row["issue_type"]: row for row in issue_rows[0]}
