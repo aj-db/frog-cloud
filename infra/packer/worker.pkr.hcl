@@ -88,6 +88,7 @@ source "googlecompute" "frog_worker" {
 
   network    = var.network
   subnetwork = var.subnetwork != "" ? var.subnetwork : null
+  tags       = ["packer-builder"]
 
   ssh_username = "ubuntu"
   scopes       = ["https://www.googleapis.com/auth/cloud-platform"]

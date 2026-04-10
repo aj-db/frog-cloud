@@ -106,9 +106,22 @@ jobs:
           IMAGE_NAME="frog-worker-${GITHUB_SHA}"
           NETWORK="${DEPLOY_ENVIRONMENT}-frog-vpc"
           SUBNETWORK="${DEPLOY_ENVIRONMENT}-frog-subnet"
+          SSH_FIREWALL_RULE="${DEPLOY_ENVIRONMENT}-frog-packer-ssh"
 
           gcloud compute networks describe "${NETWORK}" --project="${GCP_PROJECT_ID}" --format="value(name)" >/dev/null
           gcloud compute networks subnets describe "${SUBNETWORK}" --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" --format="value(name)" >/dev/null
+
+          if ! gcloud compute firewall-rules describe "${SSH_FIREWALL_RULE}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud compute firewall-rules create "${SSH_FIREWALL_RULE}" \
+              --project="${GCP_PROJECT_ID}" \
+              --network="${NETWORK}" \
+              --direction=INGRESS \
+              --priority=1000 \
+              --allow=tcp:22 \
+              --source-ranges=0.0.0.0/0 \
+              --target-tags=packer-builder \
+              --description="Allow SSH to ephemeral Packer builder VMs."
+          fi
 
           {
             echo "DEB_URI=${DEB_URI}"
