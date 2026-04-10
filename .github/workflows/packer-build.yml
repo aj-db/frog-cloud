@@ -253,6 +253,7 @@ jobs:
             echo "TF_VAR_region=${GCP_REGION}"
             echo "TF_VAR_zone=${GCP_ZONE}"
             echo "TF_VAR_environment=${ENVIRONMENT}"
+            echo "TF_VAR_gce_dispatch_mode=persistent"
             echo "TF_VAR_cloud_run_image=${CURRENT_API_IMAGE}"
             echo "TF_VAR_terraform_state_bucket=${TERRAFORM_STATE_BUCKET}"
             echo "TF_VAR_terraform_state_prefix=${TERRAFORM_STATE_PREFIX}"
