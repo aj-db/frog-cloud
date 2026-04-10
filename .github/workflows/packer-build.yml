@@ -54,6 +54,7 @@ jobs:
     env:
       DEPLOY_ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'staging' }}
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
       DEFAULT_DEB_URI: ${{ vars.SCREAMING_FROG_DEB_GS_URI }}
       INPUT_DEB_URI: ${{ github.event.inputs.screaming_frog_deb_gs_uri }}
       INPUT_ZONE: ${{ github.event.inputs.zone }}
@@ -103,23 +104,30 @@ jobs:
 
           ZONE="${INPUT_ZONE:-us-central1-a}"
           IMAGE_NAME="frog-worker-${GITHUB_SHA}"
+          NETWORK="${DEPLOY_ENVIRONMENT}-frog-vpc"
+          SUBNETWORK="${DEPLOY_ENVIRONMENT}-frog-subnet"
+
+          gcloud compute networks describe "${NETWORK}" --project="${GCP_PROJECT_ID}" --format="value(name)" >/dev/null
+          gcloud compute networks subnets describe "${SUBNETWORK}" --project="${GCP_PROJECT_ID}" --region="${GCP_REGION}" --format="value(name)" >/dev/null
 
           {
             echo "DEB_URI=${DEB_URI}"
             echo "ZONE=${ZONE}"
             echo "IMAGE_NAME=${IMAGE_NAME}"
+            echo "NETWORK=${NETWORK}"
+            echo "SUBNETWORK=${SUBNETWORK}"
           } >> "${GITHUB_ENV}"
 
       - name: Validate template
         working-directory: infra/packer
         run: |
-          packer validate             -var=project_id="${GCP_PROJECT_ID}"             -var=zone="${ZONE}"             -var=image_version="${GITHUB_SHA}"             -var=screaming_frog_deb_gs_uri="${DEB_URI}"             worker.pkr.hcl
+          packer validate             -var=project_id="${GCP_PROJECT_ID}"             -var=zone="${ZONE}"             -var=image_version="${GITHUB_SHA}"             -var=network="${NETWORK}"             -var=subnetwork="${SUBNETWORK}"             -var=screaming_frog_deb_gs_uri="${DEB_URI}"             worker.pkr.hcl
 
       - name: Build image
         working-directory: infra/packer
         run: |
           set -euo pipefail
-          packer build             -var=project_id="${GCP_PROJECT_ID}"             -var=zone="${ZONE}"             -var=image_version="${GITHUB_SHA}"             -var=screaming_frog_deb_gs_uri="${DEB_URI}"             worker.pkr.hcl
+          packer build             -var=project_id="${GCP_PROJECT_ID}"             -var=zone="${ZONE}"             -var=image_version="${GITHUB_SHA}"             -var=network="${NETWORK}"             -var=subnetwork="${SUBNETWORK}"             -var=screaming_frog_deb_gs_uri="${DEB_URI}"             worker.pkr.hcl
       - id: image
         name: Resolve image reference
         run: |
