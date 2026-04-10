@@ -177,11 +177,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify rollout auth inputs
+        env:
+          ROLLOUT_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GCP_PACKER_SERVICE_ACCOUNT_EMAIL }}
+        run: |
+          if [ -z "${ROLLOUT_SERVICE_ACCOUNT_EMAIL}" ]; then
+            echo "Missing required environment secret GCP_PACKER_SERVICE_ACCOUNT_EMAIL for staging rollout."
+            exit 1
+          fi
+
       - id: auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          service_account: ${{ secrets.GCP_PACKER_SERVICE_ACCOUNT_EMAIL }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
