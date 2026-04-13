@@ -64,6 +64,11 @@ class Settings(BaseSettings):
         alias="INTERNAL_OIDC_AUDIENCE",
         description="Expected audience for Google-signed OIDC tokens on /internal/*.",
     )
+    extract_skip_orphan_issues: bool = Field(
+        default=False,
+        alias="EXTRACT_SKIP_ORPHAN_ISSUES",
+        description="When true, issue rows that cannot be resolved to a crawl page are dropped during extraction.",
+    )
 
 
 @lru_cache

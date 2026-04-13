@@ -82,6 +82,7 @@ def update_heartbeat(
     progress_pct: float | None = None,
     urls_crawled: int | None = None,
     status_message: str | None = None,
+    commit: bool = True,
 ) -> None:
     values: dict = {"last_heartbeat_at": utcnow(), "updated_at": utcnow()}
     if progress_pct is not None:
@@ -91,7 +92,8 @@ def update_heartbeat(
     if status_message is not None:
         values["status_message"] = status_message[:512]
     db.execute(update(CrawlJob).where(CrawlJob.id == job_id).values(**values))
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def set_job_error(db: Session, job_id: UUID, message: str) -> None:
