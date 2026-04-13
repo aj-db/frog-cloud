@@ -259,18 +259,14 @@ def _row_to_page_dict(job_id: UUID, row: dict[str, Any]) -> dict[str, Any]:
         "address": address,
         "status_code": _to_int(_cell(nr, "status code", "status_code")),
         "title": _as_str(_cell(nr, "title")),
-        "meta_description": _as_str(
-            _cell(nr, "meta description 1", "meta description", "meta_description")
-        ),
+        "meta_description": _as_str(_cell(nr, "meta description 1", "meta description", "meta_description")),
         "h1": _as_str(_cell(nr, "h1 1", "h1")),
         "word_count": _to_int(_cell(nr, "word count", "word_count")),
         "indexability": _as_str(_cell(nr, "indexability")),
         "crawl_depth": _to_crawl_depth(_cell(nr, "crawl depth", "crawl_depth")),
         "response_time": _to_float(_cell(nr, "response time", "response_time")),
         "canonical": _as_str(_cell(nr, "canonical")),
-        "canonical_link_element": _as_str(
-            _cell(nr, "canonical link element 1", "canonical link element")
-        ),
+        "canonical_link_element": _as_str(_cell(nr, "canonical link element 1", "canonical link element")),
         "content_type": _as_str(_cell(nr, "content type", "content_type")),
         "redirect_url": _as_str(_cell(nr, "redirect url", "redirect_url")),
         "size_bytes": _to_int(_cell(nr, "size", "size_bytes")),

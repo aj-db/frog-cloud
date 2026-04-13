@@ -128,6 +128,7 @@ def _patch_extraction(monkeypatch, crawl, *, settings=None):
 
 # --- _normalize_row / _cell refactor tests ---
 
+
 def test_normalize_row_lowercases_and_collapses():
     result = extractor._normalize_row({"Status-Code": 200, "Content_Type": "text/html"})
     assert result["status code"] == 200
@@ -141,6 +142,7 @@ def test_cell_uses_prenormalized_dict():
 
 
 # --- _row_to_page_dict tests ---
+
 
 def test_row_to_page_dict_normalizes_crawl_depth_sentinel():
     sentinel = 2_147_483_647
@@ -159,6 +161,7 @@ def test_row_to_page_dict_handles_missing_crawl_depth():
 
 
 # --- _tab_issue_row classification tests ---
+
 
 def test_tab_issue_row_uses_issue_column_not_type():
     """Prove that a numeric Type column is NOT used as issue_type."""
@@ -217,6 +220,7 @@ def test_tab_issue_row_orphan_no_match():
 
 
 # --- heartbeat / extraction integration tests ---
+
 
 def test_extract_crawl_to_postgres_emits_heartbeats_during_page_loading(monkeypatch, tmp_path):
     job = CrawlJob(
@@ -347,11 +351,7 @@ def test_extract_crawl_to_postgres_streams_issue_tabs_without_report_helpers(mon
 
     crawl = _StreamingIssueCrawl(
         [{"Address": "https://example.com/", "Status Code": "200"}],
-        tabs={
-            "security_missing_hsts_header": [
-                {"Address": "https://example.com/", "Details": "Header not present"}
-            ]
-        },
+        tabs={"security_missing_hsts_header": [{"Address": "https://example.com/", "Details": "Header not present"}]},
     )
 
     _patch_extraction(monkeypatch, crawl)
@@ -386,11 +386,7 @@ def test_tab_issue_row_does_not_use_numeric_type_as_issue_type(monkeypatch, tmp_
     db = _FakeSession(job)
     crawl = _FakeCrawl(
         [{"Address": "https://example.com/", "Status Code": "200"}],
-        tabs={
-            "security_mixed_content": [
-                {"Address": "https://example.com/", "Type": "20", "Details": "mixed"}
-            ]
-        },
+        tabs={"security_mixed_content": [{"Address": "https://example.com/", "Type": "20", "Details": "mixed"}]},
     )
 
     _patch_extraction(monkeypatch, crawl)

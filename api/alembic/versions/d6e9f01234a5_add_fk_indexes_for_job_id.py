@@ -29,9 +29,7 @@ def upgrade() -> None:
         op.execute("COMMIT")
         for name, table, cols in _INDEXES:
             col_list = ", ".join(cols)
-            op.execute(
-                f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} ON {table} ({col_list})"
-            )
+            op.execute(f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} ON {table} ({col_list})")
     else:
         for name, table, cols in _INDEXES:
             op.create_index(name, table, cols)
