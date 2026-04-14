@@ -5,6 +5,7 @@ export interface PollSnapshot {
   last_heartbeat_at?: string | null;
   urls_crawled?: number | null;
   status_message?: string | null;
+  extraction_partial?: boolean;
 }
 
 export interface PollControllerOptions {

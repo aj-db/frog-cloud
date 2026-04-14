@@ -82,7 +82,9 @@ class _TabStats:
     rows_seen: int = 0
     rows_resolved: int = 0
     rows_orphaned: int = 0
+    rows_capped: int = 0
     elapsed: float = 0.0
+    capped: bool = False
 
 
 @dataclass
@@ -94,10 +96,35 @@ class _ExtractionMetrics:
     link_elapsed: float = 0.0
     link_count: int = 0
     tab_stats: dict[str, _TabStats] = field(default_factory=dict)
+    capped_tabs: list[str] = field(default_factory=list)
+    skipped_tabs: list[str] = field(default_factory=list)
+    total_issues_capped: bool = False
+    issue_phase_timed_out: bool = False
+
+    @property
+    def is_partial(self) -> bool:
+        return bool(self.capped_tabs or self.skipped_tabs or self.total_issues_capped or self.issue_phase_timed_out)
+
+    def to_metadata_dict(self) -> dict[str, object]:
+        return {
+            "partial": self.is_partial,
+            "pages": self.page_count,
+            "issues": self.issue_count,
+            "links": self.link_count,
+            "page_elapsed_s": round(self.page_elapsed, 1),
+            "issue_elapsed_s": round(self.issue_elapsed, 1),
+            "link_elapsed_s": round(self.link_elapsed, 1),
+            "capped_tabs": self.capped_tabs,
+            "skipped_tabs": self.skipped_tabs,
+            "total_issues_capped": self.total_issues_capped,
+            "issue_phase_timed_out": self.issue_phase_timed_out,
+            "tabs_processed": len(self.tab_stats),
+            "tabs_total": len(ISSUE_TABS),
+        }
 
     def log_summary(self, job_id: UUID) -> None:
         logger.info(
-            "extraction_metrics job=%s pages=%d/%.1fs issues=%d/%.1fs links=%d/%.1fs",
+            "extraction_metrics job=%s pages=%d/%.1fs issues=%d/%.1fs links=%d/%.1fs partial=%s",
             job_id,
             self.page_count,
             self.page_elapsed,
@@ -105,7 +132,12 @@ class _ExtractionMetrics:
             self.issue_elapsed,
             self.link_count,
             self.link_elapsed,
+            self.is_partial,
         )
+        if self.capped_tabs:
+            logger.info("extraction_capped_tabs job=%s tabs=%s", job_id, self.capped_tabs)
+        if self.skipped_tabs:
+            logger.info("extraction_skipped_tabs job=%s tabs=%s", job_id, self.skipped_tabs)
         top_tabs = sorted(
             self.tab_stats.items(),
             key=lambda kv: kv[1].rows_seen,
@@ -113,12 +145,13 @@ class _ExtractionMetrics:
         )[:10]
         for tab_name, stats in top_tabs:
             logger.info(
-                "extraction_tab job=%s tab=%s seen=%d resolved=%d orphaned=%d elapsed=%.1fs",
+                "extraction_tab job=%s tab=%s seen=%d resolved=%d orphaned=%d capped=%d elapsed=%.1fs",
                 job_id,
                 tab_name,
                 stats.rows_seen,
                 stats.rows_resolved,
                 stats.rows_orphaned,
+                stats.rows_capped,
                 stats.elapsed,
             )
 
@@ -511,6 +544,11 @@ def extract_crawl_to_postgres(
     last_heartbeat_at = time.monotonic()
 
     # --- Issues from direct tab streams -------------------------------
+    settings = get_settings()
+    max_per_tab = settings.extract_max_issues_per_tab
+    max_total = settings.extract_max_issues_total
+    issue_phase_timeout = settings.extract_issue_phase_timeout_seconds
+
     issue_start = time.monotonic()
     issue_batch: list[dict[str, Any]] = list(status_issue_batch)
     total_issues = len(issue_batch)
@@ -533,13 +571,32 @@ def extract_crawl_to_postgres(
         last_heartbeat_at = time.monotonic()
 
     for tab_name, issue_label in ISSUE_TABS:
+        effective_total = total_issues + len(issue_batch)
+        if effective_total >= max_total:
+            logger.warning(
+                "extract job=%s total issue cap reached (%d >= %d); skipping remaining tabs",
+                job_id, effective_total, max_total,
+            )
+            metrics.total_issues_capped = True
+            metrics.skipped_tabs.append(tab_name)
+            continue
+
+        if time.monotonic() - issue_start > issue_phase_timeout:
+            logger.warning(
+                "extract job=%s issue phase timeout (%.0fs); skipping remaining tabs",
+                job_id, issue_phase_timeout,
+            )
+            metrics.issue_phase_timed_out = True
+            metrics.skipped_tabs.append(tab_name)
+            continue
+
         tab_start = time.monotonic()
         stats = _TabStats()
         last_heartbeat_at = _maybe_emit_loading_heartbeat(
             db,
             job_id,
             last_heartbeat_at=last_heartbeat_at,
-            status_message="Loading issues into the database…",
+            status_message=f"Loading issues into the database… ({total_issues:,} so far)",
             urls_crawled=total,
         )
         try:
@@ -547,6 +604,8 @@ def extract_crawl_to_postgres(
         except Exception:
             logger.debug("issue tab %s not available", tab_name, exc_info=True)
             continue
+
+        tab_rows_inserted = 0
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -564,12 +623,18 @@ def extract_crawl_to_postgres(
                 if skip_orphans:
                     continue
 
+            if tab_rows_inserted >= max_per_tab:
+                stats.rows_capped += 1
+                stats.capped = True
+                continue
+
             issue_batch.append(issue_dict)
+            tab_rows_inserted += 1
             last_heartbeat_at = _maybe_emit_loading_heartbeat(
                 db,
                 job_id,
                 last_heartbeat_at=last_heartbeat_at,
-                status_message="Loading issues into the database…",
+                status_message=f"Loading issues into the database… ({total_issues + len(issue_batch):,} so far)",
                 urls_crawled=total,
             )
             if len(issue_batch) >= CHUNK_SIZE:
@@ -577,6 +642,12 @@ def extract_crawl_to_postgres(
 
         stats.elapsed = time.monotonic() - tab_start
         metrics.tab_stats[tab_name] = stats
+        if stats.capped:
+            logger.warning(
+                "extract job=%s tab=%s hit per-tab cap %d (seen=%d, capped=%d)",
+                job_id, tab_name, max_per_tab, stats.rows_seen, stats.rows_capped,
+            )
+            metrics.capped_tabs.append(tab_name)
 
     flush_issues()
     metrics.issue_elapsed = time.monotonic() - issue_start
@@ -645,12 +716,24 @@ def extract_crawl_to_postgres(
     metrics.link_count = total_links
     metrics.log_summary(job_id)
 
+    job = db.execute(select(CrawlJob).where(CrawlJob.id == job_id)).scalar_one_or_none()
+    if job is not None:
+        job.extraction_metadata = metrics.to_metadata_dict()
+        if metrics.is_partial:
+            job.extraction_partial = True
+        db.add(job)
+        db.commit()
+
+    done_message = "Finished loading crawl results."
+    if metrics.is_partial:
+        done_message = "Finished loading crawl results (partial — some issue tabs were capped or skipped)."
+
     update_heartbeat(
         db,
         job_id,
         progress_pct=100.0,
         urls_crawled=total,
-        status_message="Finished loading crawl results.",
+        status_message=done_message,
     )
 
     transition_job_status(

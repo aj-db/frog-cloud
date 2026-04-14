@@ -109,6 +109,8 @@ class CrawlJobResponse(BaseModel):
     status_message: str | None
     error: str | None
     artifact_prefix: str | None
+    extraction_partial: bool = False
+    extraction_metadata: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -134,6 +136,7 @@ class CrawlJobListResponse(BaseModel):
     urls_crawled: int
     status_message: str | None
     error: str | None
+    extraction_partial: bool = False
     created_at: datetime
     updated_at: datetime
 

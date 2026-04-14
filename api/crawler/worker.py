@@ -41,6 +41,10 @@ CRAWL_LOG_TAIL_CHARS = 4000
 LIMIT_STOP_GRACE_SECONDS = 30.0
 ARTIFACT_DISCOVERY_TIMEOUT_SECONDS = 15.0
 ARTIFACT_DISCOVERY_POLL_SECONDS = 0.5
+WATCHDOG_POLL_SECONDS = 30.0
+WATCHDOG_TERMINATE_GRACE_SECONDS = 10.0
+WATCHDOG_EXIT_TIMEOUT = -100
+WATCHDOG_EXIT_STALE = -101
 
 
 def _metadata_get(path: str, timeout: float = 5.0) -> str:
@@ -102,12 +106,37 @@ def _extract_job_in_subprocess(
         db.close()
 
 
+def _heartbeat_age_seconds(db: Session, job_id: UUID) -> float | None:
+    """Check how many seconds since the last heartbeat was written by the extractor."""
+    db.expire_all()
+    job = db.execute(select(CrawlJob).where(CrawlJob.id == job_id)).scalar_one_or_none()
+    if job is None or job.last_heartbeat_at is None:
+        return None
+    delta = utcnow() - job.last_heartbeat_at
+    return max(delta.total_seconds(), 0.0)
+
+
+def _terminate_subprocess(process: multiprocessing.process.BaseProcess) -> None:
+    """SIGTERM then SIGKILL the extraction subprocess."""
+    process.terminate()
+    process.join(timeout=WATCHDOG_TERMINATE_GRACE_SECONDS)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=5)
+
+
 def _run_extract_job_in_subprocess(
     job_id: UUID,
     tenant_id: UUID,
     artifact_path: Path,
     cli_path: str | None,
+    *,
+    db: Session,
 ) -> int:
+    settings = get_settings()
+    max_runtime = settings.extract_max_runtime_seconds
+    stale_grace = settings.extract_stale_grace_seconds
+
     ctx = multiprocessing.get_context("spawn")
     process = ctx.Process(
         target=_extract_job_in_subprocess,
@@ -116,7 +145,47 @@ def _run_extract_job_in_subprocess(
     )
     process.daemon = False
     process.start()
-    process.join()
+
+    start_time = time.monotonic()
+
+    while process.is_alive():
+        process.join(timeout=WATCHDOG_POLL_SECONDS)
+        if not process.is_alive():
+            break
+
+        elapsed = time.monotonic() - start_time
+        elapsed_min = elapsed / 60.0
+
+        if elapsed > max_runtime:
+            logger.warning(
+                "Job %s extraction exceeded max runtime %ds (elapsed=%.0fs); terminating subprocess",
+                job_id, max_runtime, elapsed,
+            )
+            update_heartbeat(
+                db, job_id,
+                status_message=f"Extraction watchdog: max runtime exceeded ({elapsed_min:.0f}m). Saving partial results.",
+            )
+            _terminate_subprocess(process)
+            return WATCHDOG_EXIT_TIMEOUT
+
+        heartbeat_age = _heartbeat_age_seconds(db, job_id)
+        if heartbeat_age is not None and heartbeat_age > stale_grace:
+            logger.warning(
+                "Job %s extraction heartbeat stale for %.0fs (grace=%ds); terminating subprocess",
+                job_id, heartbeat_age, stale_grace,
+            )
+            update_heartbeat(
+                db, job_id,
+                status_message=f"Extraction watchdog: heartbeat stale ({heartbeat_age:.0f}s). Saving partial results.",
+            )
+            _terminate_subprocess(process)
+            return WATCHDOG_EXIT_STALE
+
+        update_heartbeat(
+            db, job_id,
+            status_message=f"Extracting — {elapsed_min:.0f}m elapsed",
+        )
+
     return 1 if process.exitcode is None else process.exitcode
 
 
@@ -126,6 +195,7 @@ def _reconcile_extractor_exit(
     *,
     exitcode: int,
 ) -> CrawlJob | None:
+    db.expire_all()
     job = db.execute(select(CrawlJob).where(CrawlJob.id == job_id)).scalar_one_or_none()
     if job is None:
         logger.error("Job %s missing after extractor exit", job_id)
@@ -141,6 +211,29 @@ def _reconcile_extractor_exit(
         return job
 
     if job.status in (JobStatus.failed, JobStatus.cancelled):
+        return job
+
+    watchdog_killed = exitcode in (WATCHDOG_EXIT_TIMEOUT, WATCHDOG_EXIT_STALE)
+    has_partial_data = job.urls_crawled is not None and job.urls_crawled > 0
+
+    if watchdog_killed and has_partial_data:
+        reason = "max runtime exceeded" if exitcode == WATCHDOG_EXIT_TIMEOUT else "heartbeat stale"
+        logger.info(
+            "Job %s watchdog terminated (%s) with %d pages; marking complete with partial data",
+            job_id, reason, job.urls_crawled,
+        )
+        job.extraction_partial = True
+        meta = dict(job.extraction_metadata or {})
+        meta["partial"] = True
+        meta["watchdog_terminated"] = True
+        meta["watchdog_reason"] = reason
+        job.extraction_metadata = meta
+        job.status = JobStatus.complete
+        job.completed_at = utcnow()
+        job.progress_pct = 100.0
+        job.status_message = f"Completed with partial data ({reason}). {job.urls_crawled:,} pages extracted."
+        db.add(job)
+        db.commit()
         return job
 
     if exitcode != 0:
@@ -540,6 +633,7 @@ def _run_crawl_cli(
 def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
     """Run the full worker pipeline for one job."""
     logging.basicConfig(level=logging.INFO)
+    pipeline_start = time.monotonic()
     db = _session_factory()()
     bucket = os.environ.get("GCS_BUCKET")
 
@@ -547,6 +641,18 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
         job = _prepare_gce_job_for_processing(db, job_id)
         if job is None:
             return
+
+        settings = get_settings()
+        logger.info(
+            "worker_config job=%s max_runtime=%ds stale_grace=%ds "
+            "max_issues_per_tab=%d max_issues_total=%d issue_phase_timeout=%.0fs",
+            job_id,
+            settings.extract_max_runtime_seconds,
+            settings.extract_stale_grace_seconds,
+            settings.extract_max_issues_per_tab,
+            settings.extract_max_issues_total,
+            settings.extract_issue_phase_timeout_seconds,
+        )
 
         update_heartbeat(db, job_id, status_message="Loading crawl profile…")
 
@@ -597,10 +703,21 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
             job.tenant_id,
             artifact,
             os.environ.get("SF_CLI_PATH"),
+            db=db,
         )
+        extract_elapsed = time.monotonic() - pipeline_start
         job = _reconcile_extractor_exit(db, job_id, exitcode=extract_exitcode)
         if job is None or job.status != JobStatus.complete:
+            logger.info(
+                "worker_pipeline job=%s status=%s extract_exit=%d elapsed=%.1fs",
+                job_id, job.status.value if job else "missing", extract_exitcode, extract_elapsed,
+            )
             return
+
+        logger.info(
+            "worker_pipeline job=%s status=complete partial=%s urls=%d elapsed=%.1fs",
+            job_id, job.extraction_partial, job.urls_crawled, extract_elapsed,
+        )
 
         if bucket:
             prefix = f"tenants/{job.tenant_id}/jobs/{job_id}/artifacts"

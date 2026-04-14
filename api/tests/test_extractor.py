@@ -109,7 +109,12 @@ class _FakeCrawl:
 
 def _fake_settings(**overrides):
     """Return a SimpleNamespace that quacks like Settings for extractor reads."""
-    defaults = {"extract_skip_orphan_issues": False}
+    defaults = {
+        "extract_skip_orphan_issues": False,
+        "extract_max_issues_per_tab": 50_000,
+        "extract_max_issues_total": 500_000,
+        "extract_issue_phase_timeout_seconds": 3600.0,
+    }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -491,3 +496,118 @@ def test_normalize_address():
     assert extractor._normalize_address("https://Example.com/About/") == "https://example.com/about"
     assert extractor._normalize_address("https://example.com") == "https://example.com"
     assert extractor._normalize_address("/") == "/"
+
+
+def test_extract_caps_issues_per_tab(monkeypatch, tmp_path):
+    """Per-tab cap limits the number of issues inserted from a single tab."""
+    job = CrawlJob(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        profile_id=uuid4(),
+        target_url="https://example.com",
+        executor=JobExecutor.gce,
+        status=JobStatus.running,
+    )
+    db = _FakeSession(job)
+    issue_rows = [
+        {"Address": "https://example.com/", "Issue": f"Issue {i}"}
+        for i in range(20)
+    ]
+    crawl = _FakeCrawl(
+        [{"Address": "https://example.com/", "Status Code": "200"}],
+        tabs={"security_mixed_content": issue_rows},
+    )
+
+    _patch_extraction(
+        monkeypatch,
+        crawl,
+        settings=_fake_settings(extract_max_issues_per_tab=5),
+    )
+
+    extractor.extract_crawl_to_postgres(
+        db,
+        job_id=job.id,
+        tenant_id=job.tenant_id,
+        artifact_path=tmp_path / "crawl.seospider",
+        cli_path=None,
+    )
+
+    all_issue_rows = [
+        row
+        for model, rows in db.bulk_insert_calls
+        if model is CrawlIssue
+        for row in rows
+    ]
+    tab_issues = [r for r in all_issue_rows if not r["issue_type"].startswith("status_")]
+    assert len(tab_issues) == 5
+
+
+def test_extract_caps_total_issues(monkeypatch, tmp_path):
+    """Total issue cap stops processing remaining tabs."""
+    job = CrawlJob(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        profile_id=uuid4(),
+        target_url="https://example.com",
+        executor=JobExecutor.gce,
+        status=JobStatus.running,
+    )
+    db = _FakeSession(job)
+
+    tab_a_rows = [
+        {"Address": "https://example.com/", "Issue": f"A-{i}"}
+        for i in range(10)
+    ]
+    tab_b_rows = [
+        {"Address": "https://example.com/", "Issue": f"B-{i}"}
+        for i in range(10)
+    ]
+    crawl = _FakeCrawl(
+        [{"Address": "https://example.com/", "Status Code": "200"}],
+        tabs={
+            "security_mixed_content": tab_a_rows,
+            "security_http_urls": tab_b_rows,
+        },
+    )
+
+    _patch_extraction(
+        monkeypatch,
+        crawl,
+        settings=_fake_settings(
+            extract_max_issues_per_tab=50_000,
+            extract_max_issues_total=12,
+        ),
+    )
+
+    extractor.extract_crawl_to_postgres(
+        db,
+        job_id=job.id,
+        tenant_id=job.tenant_id,
+        artifact_path=tmp_path / "crawl.seospider",
+        cli_path=None,
+    )
+
+    all_issue_rows = [
+        row
+        for model, rows in db.bulk_insert_calls
+        if model is CrawlIssue
+        for row in rows
+    ]
+    assert len(all_issue_rows) <= 12
+
+
+def test_extraction_metrics_partial_flag():
+    """_ExtractionMetrics.is_partial reflects caps/skips."""
+    m = extractor._ExtractionMetrics()
+    assert not m.is_partial
+
+    m.capped_tabs.append("some_tab")
+    assert m.is_partial
+
+    m2 = extractor._ExtractionMetrics()
+    m2.total_issues_capped = True
+    assert m2.is_partial
+
+    m3 = extractor._ExtractionMetrics()
+    m3.skipped_tabs.append("skipped")
+    assert m3.is_partial

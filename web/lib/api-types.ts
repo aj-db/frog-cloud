@@ -16,6 +16,24 @@ export interface CrawlProfile {
   config_path?: string | null;
 }
 
+export interface ExtractionMetadata {
+  partial?: boolean;
+  pages?: number;
+  issues?: number;
+  links?: number;
+  page_elapsed_s?: number;
+  issue_elapsed_s?: number;
+  link_elapsed_s?: number;
+  capped_tabs?: string[];
+  skipped_tabs?: string[];
+  total_issues_capped?: boolean;
+  issue_phase_timed_out?: boolean;
+  tabs_processed?: number;
+  tabs_total?: number;
+  watchdog_terminated?: boolean;
+  watchdog_reason?: string;
+}
+
 export interface CrawlJob {
   id: string;
   tenant_id?: string;
@@ -30,6 +48,8 @@ export interface CrawlJob {
   urls_crawled: number | null;
   status_message: string | null;
   error: string | null;
+  extraction_partial?: boolean;
+  extraction_metadata?: ExtractionMetadata | null;
   profile?: CrawlProfile | null;
   /** Aggregates — optional until backend sends them */
   issues_count?: number | null;

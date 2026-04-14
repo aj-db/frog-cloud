@@ -69,6 +69,31 @@ class Settings(BaseSettings):
         alias="EXTRACT_SKIP_ORPHAN_ISSUES",
         description="When true, issue rows that cannot be resolved to a crawl page are dropped during extraction.",
     )
+    extract_max_runtime_seconds: int = Field(
+        default=7200,
+        alias="EXTRACT_MAX_RUNTIME_SECONDS",
+        description="Worker-level watchdog: max seconds before the extraction subprocess is terminated.",
+    )
+    extract_stale_grace_seconds: int = Field(
+        default=300,
+        alias="EXTRACT_STALE_GRACE_SECONDS",
+        description="Worker-level watchdog: seconds without a heartbeat update before termination.",
+    )
+    extract_max_issues_per_tab: int = Field(
+        default=50_000,
+        alias="EXTRACT_MAX_ISSUES_PER_TAB",
+        description="Per-tab row cap for issue extraction. Rows beyond this limit are dropped.",
+    )
+    extract_max_issues_total: int = Field(
+        default=500_000,
+        alias="EXTRACT_MAX_ISSUES_TOTAL",
+        description="Total issue cap across all tabs. Once reached, remaining tabs are skipped.",
+    )
+    extract_issue_phase_timeout_seconds: float = Field(
+        default=3600.0,
+        alias="EXTRACT_ISSUE_PHASE_TIMEOUT_SECONDS",
+        description="Max wall-clock seconds for the entire issue-extraction phase before skipping remaining tabs.",
+    )
 
 
 @lru_cache

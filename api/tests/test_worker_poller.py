@@ -40,6 +40,9 @@ class _FakeSession:
     def close(self):
         return None
 
+    def expire_all(self):
+        return None
+
 
 class _StopLoop(Exception):
     pass

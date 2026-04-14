@@ -13,8 +13,11 @@ type Snapshot = PollSnapshot & {
   stale: boolean;
   worker_stale: boolean;
   heartbeat_label: string | null;
+  extraction_partial: boolean;
 };
+
 const HEARTBEAT_STALE_MS = 45_000;
+const HEARTBEAT_STALE_EXTRACTION_MS = 360_000;
 
 function formatHeartbeatAge(
   iso: string | null | undefined,
@@ -58,6 +61,7 @@ export function CrawlProgress({
           last_heartbeat_at: job.last_heartbeat_at,
           urls_crawled: job.urls_crawled,
           status_message: job.status_message,
+          extraction_partial: job.extraction_partial ?? false,
         };
       },
       {
@@ -66,14 +70,17 @@ export function CrawlProgress({
         onUpdate: (s) => {
           const nowMs = Date.now();
           const heartbeatLabel = formatHeartbeatAge(s.last_heartbeat_at, nowMs);
+          const isExtracting = s.status === "extracting" || s.status === "loading";
+          const staleThreshold = isExtracting ? HEARTBEAT_STALE_EXTRACTION_MS : HEARTBEAT_STALE_MS;
           const workerStale =
             jobIsActive(s.status) &&
             Boolean(s.last_heartbeat_at) &&
-            nowMs - new Date(s.last_heartbeat_at ?? 0).getTime() > HEARTBEAT_STALE_MS;
+            nowMs - new Date(s.last_heartbeat_at ?? 0).getTime() > staleThreshold;
           setSnapshot({
             ...s,
             worker_stale: workerStale,
             heartbeat_label: heartbeatLabel,
+            extraction_partial: s.extraction_partial ?? false,
           });
           if (!s.stale) setPollError(false);
         },
@@ -123,6 +130,8 @@ export function CrawlProgress({
                 void api.getCrawl(jobId).then((job) => {
                   const nowMs = Date.now();
                   const heartbeatLabel = formatHeartbeatAge(job.last_heartbeat_at, nowMs);
+                  const isExtracting = job.status === "extracting" || job.status === "loading";
+                  const staleThreshold = isExtracting ? HEARTBEAT_STALE_EXTRACTION_MS : HEARTBEAT_STALE_MS;
                   setSnapshot({
                     status: job.status,
                     progress_pct: job.progress_pct,
@@ -132,8 +141,9 @@ export function CrawlProgress({
                     worker_stale:
                       jobIsActive(job.status) &&
                       Boolean(job.last_heartbeat_at) &&
-                      nowMs - new Date(job.last_heartbeat_at ?? 0).getTime() > HEARTBEAT_STALE_MS,
+                      nowMs - new Date(job.last_heartbeat_at ?? 0).getTime() > staleThreshold,
                     heartbeat_label: heartbeatLabel,
+                    extraction_partial: job.extraction_partial ?? false,
                   });
                   onJobUpdate?.(job);
                 });
@@ -147,8 +157,16 @@ export function CrawlProgress({
 
       {snapshot?.worker_stale && !pollError && (
         <Alert variant="warning" title="Worker heartbeat is stale">
-          The API is still reachable, but this crawl has not reported a worker heartbeat recently.
-          It may be stalled.
+          {snapshot.status === "extracting" || snapshot.status === "loading"
+            ? "The extraction process has not reported a heartbeat for several minutes. A watchdog will automatically recover if it remains unresponsive."
+            : "The API is still reachable, but this crawl has not reported a worker heartbeat recently. It may be stalled."}
+        </Alert>
+      )}
+
+      {snapshot?.status === "complete" && snapshot.extraction_partial && (
+        <Alert variant="warning" title="Partial results">
+          This crawl completed with partial data. Some issue tabs may have been capped or
+          skipped due to volume limits or timeouts. Review the extraction details for specifics.
         </Alert>
       )}
 
