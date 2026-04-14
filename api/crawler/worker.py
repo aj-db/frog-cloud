@@ -159,10 +159,13 @@ def _run_extract_job_in_subprocess(
         if elapsed > max_runtime:
             logger.warning(
                 "Job %s extraction exceeded max runtime %ds (elapsed=%.0fs); terminating subprocess",
-                job_id, max_runtime, elapsed,
+                job_id,
+                max_runtime,
+                elapsed,
             )
             update_heartbeat(
-                db, job_id,
+                db,
+                job_id,
                 status_message=f"Extraction watchdog: max runtime exceeded ({elapsed_min:.0f}m). Saving partial results.",
             )
             _terminate_subprocess(process)
@@ -172,17 +175,21 @@ def _run_extract_job_in_subprocess(
         if heartbeat_age is not None and heartbeat_age > stale_grace:
             logger.warning(
                 "Job %s extraction heartbeat stale for %.0fs (grace=%ds); terminating subprocess",
-                job_id, heartbeat_age, stale_grace,
+                job_id,
+                heartbeat_age,
+                stale_grace,
             )
             update_heartbeat(
-                db, job_id,
+                db,
+                job_id,
                 status_message=f"Extraction watchdog: heartbeat stale ({heartbeat_age:.0f}s). Saving partial results.",
             )
             _terminate_subprocess(process)
             return WATCHDOG_EXIT_STALE
 
         update_heartbeat(
-            db, job_id,
+            db,
+            job_id,
             status_message=f"Extracting — {elapsed_min:.0f}m elapsed",
         )
 
@@ -220,7 +227,9 @@ def _reconcile_extractor_exit(
         reason = "max runtime exceeded" if exitcode == WATCHDOG_EXIT_TIMEOUT else "heartbeat stale"
         logger.info(
             "Job %s watchdog terminated (%s) with %d pages; marking complete with partial data",
-            job_id, reason, job.urls_crawled,
+            job_id,
+            reason,
+            job.urls_crawled,
         )
         job.extraction_partial = True
         meta = dict(job.extraction_metadata or {})
@@ -710,13 +719,19 @@ def process_gce_job(job_id: UUID, *, delete_self: bool) -> None:
         if job is None or job.status != JobStatus.complete:
             logger.info(
                 "worker_pipeline job=%s status=%s extract_exit=%d elapsed=%.1fs",
-                job_id, job.status.value if job else "missing", extract_exitcode, extract_elapsed,
+                job_id,
+                job.status.value if job else "missing",
+                extract_exitcode,
+                extract_elapsed,
             )
             return
 
         logger.info(
             "worker_pipeline job=%s status=complete partial=%s urls=%d elapsed=%.1fs",
-            job_id, job.extraction_partial, job.urls_crawled, extract_elapsed,
+            job_id,
+            job.extraction_partial,
+            job.urls_crawled,
+            extract_elapsed,
         )
 
         if bucket:

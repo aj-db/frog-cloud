@@ -575,7 +575,9 @@ def extract_crawl_to_postgres(
         if effective_total >= max_total:
             logger.warning(
                 "extract job=%s total issue cap reached (%d >= %d); skipping remaining tabs",
-                job_id, effective_total, max_total,
+                job_id,
+                effective_total,
+                max_total,
             )
             metrics.total_issues_capped = True
             metrics.skipped_tabs.append(tab_name)
@@ -584,7 +586,8 @@ def extract_crawl_to_postgres(
         if time.monotonic() - issue_start > issue_phase_timeout:
             logger.warning(
                 "extract job=%s issue phase timeout (%.0fs); skipping remaining tabs",
-                job_id, issue_phase_timeout,
+                job_id,
+                issue_phase_timeout,
             )
             metrics.issue_phase_timed_out = True
             metrics.skipped_tabs.append(tab_name)
@@ -645,7 +648,11 @@ def extract_crawl_to_postgres(
         if stats.capped:
             logger.warning(
                 "extract job=%s tab=%s hit per-tab cap %d (seen=%d, capped=%d)",
-                job_id, tab_name, max_per_tab, stats.rows_seen, stats.rows_capped,
+                job_id,
+                tab_name,
+                max_per_tab,
+                stats.rows_seen,
+                stats.rows_capped,
             )
             metrics.capped_tabs.append(tab_name)
 

@@ -509,10 +509,7 @@ def test_extract_caps_issues_per_tab(monkeypatch, tmp_path):
         status=JobStatus.running,
     )
     db = _FakeSession(job)
-    issue_rows = [
-        {"Address": "https://example.com/", "Issue": f"Issue {i}"}
-        for i in range(20)
-    ]
+    issue_rows = [{"Address": "https://example.com/", "Issue": f"Issue {i}"} for i in range(20)]
     crawl = _FakeCrawl(
         [{"Address": "https://example.com/", "Status Code": "200"}],
         tabs={"security_mixed_content": issue_rows},
@@ -532,12 +529,7 @@ def test_extract_caps_issues_per_tab(monkeypatch, tmp_path):
         cli_path=None,
     )
 
-    all_issue_rows = [
-        row
-        for model, rows in db.bulk_insert_calls
-        if model is CrawlIssue
-        for row in rows
-    ]
+    all_issue_rows = [row for model, rows in db.bulk_insert_calls if model is CrawlIssue for row in rows]
     tab_issues = [r for r in all_issue_rows if not r["issue_type"].startswith("status_")]
     assert len(tab_issues) == 5
 
@@ -554,14 +546,8 @@ def test_extract_caps_total_issues(monkeypatch, tmp_path):
     )
     db = _FakeSession(job)
 
-    tab_a_rows = [
-        {"Address": "https://example.com/", "Issue": f"A-{i}"}
-        for i in range(10)
-    ]
-    tab_b_rows = [
-        {"Address": "https://example.com/", "Issue": f"B-{i}"}
-        for i in range(10)
-    ]
+    tab_a_rows = [{"Address": "https://example.com/", "Issue": f"A-{i}"} for i in range(10)]
+    tab_b_rows = [{"Address": "https://example.com/", "Issue": f"B-{i}"} for i in range(10)]
     crawl = _FakeCrawl(
         [{"Address": "https://example.com/", "Status Code": "200"}],
         tabs={
@@ -587,12 +573,7 @@ def test_extract_caps_total_issues(monkeypatch, tmp_path):
         cli_path=None,
     )
 
-    all_issue_rows = [
-        row
-        for model, rows in db.bulk_insert_calls
-        if model is CrawlIssue
-        for row in rows
-    ]
+    all_issue_rows = [row for model, rows in db.bulk_insert_calls if model is CrawlIssue for row in rows]
     assert len(all_issue_rows) <= 12
 
 
